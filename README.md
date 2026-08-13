@@ -374,6 +374,11 @@ connection.
 
 ## Compare browser interfaces
 
+Use the [positioning and local contract proof](docs/positioning-proof.md) to
+decide whether this package's bounded tools and managed session lifecycle fit
+your host, and to reproduce those contracts on a loopback-only fixture. It also
+states when a direct Playwright program is the better fit.
+
 See the [evidence-backed browser tool comparison](docs/browser-tool-comparison.md)
 for a reviewed, source-pinned matrix covering Blop Browser, Playwright CLI,
 Playwright MCP, agent-browser, and Browser Use CLI with Browser Harness. It

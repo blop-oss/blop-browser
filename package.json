@@ -62,6 +62,7 @@
     "format:check": "prettier --check '*.md' 'docs/**/*.md' '.github/**/*.{md,yml,yaml}' 'benchmarks/*.md' 'benchmarks/*.json' 'benchmarks/mind2web/*.md' 'scripts/**/*.mjs' package.json",
     "check:links": "node scripts/check-markdown-links.mjs",
     "check:comparison": "node scripts/check-comparison-matrix.mjs",
+    "check:positioning": "node scripts/check-positioning-proof.mjs",
     "check:acceptable-use": "node scripts/check-acceptable-use.mjs",
     "check:security-policy": "node scripts/check-security-policy.mjs",
     "lint": "oxlint src test benchmarks/mind2web scripts --deny-warnings",
@@ -72,6 +73,7 @@
     "test:benchmarks": "bun test test/benchmarks",
     "test:cli": "bun test test/cli",
     "test:benchmark-smoke": "bun test test/benchmarks/mind2web.test.ts",
+    "demo:positioning": "bun run build && node scripts/demo-positioning-proof.mjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },
