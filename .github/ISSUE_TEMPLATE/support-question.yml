@@ -1,0 +1,57 @@
+name: Support question
+description: Ask a public setup or usage question about Blop Browser.
+title: "[Support]: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Support questions are public. Remove credentials, cookies, private URLs,
+        CDP secrets, screenshots, personal data, and authenticated browser state.
+        Report product vulnerabilities through SECURITY.md and suspected misuse
+        through ACCEPTABLE_USE.md instead.
+  - type: input
+    id: version
+    attributes:
+      label: Blop Browser version
+      description: Run `npm list -g @blopai/browser-harness` or provide the commit SHA.
+      placeholder: "@blopai/browser-harness 0.x.y"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - CLI setup or command
+        - TypeScript API
+        - Chrome or CDP connection
+        - Camoufox connection
+        - Docker browser session
+        - Agent skill
+        - Documentation
+        - Other usage question
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Explain what you are trying to do and where you are blocked.
+    validations:
+      required: true
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What have you tried?
+      description: Include sanitized commands, configuration, and output.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I removed secrets, authenticated state, and personal data.
+          required: true
+        - label: This isn't a product vulnerability or an abuse report.
+          required: true

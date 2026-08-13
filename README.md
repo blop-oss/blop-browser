@@ -433,7 +433,8 @@ tasks that can be promoted to GitHub issues after review.
 ## Project policies
 
 Review the project policies before reporting sensitive problems or taking part
-in the community.
+in the community. Product vulnerabilities use the private security process;
+support questions and ordinary bugs are public after sensitive data is removed.
 
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Acceptable-use policy](ACCEPTABLE_USE.md)

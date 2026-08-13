@@ -63,6 +63,7 @@
     "check:links": "node scripts/check-markdown-links.mjs",
     "check:comparison": "node scripts/check-comparison-matrix.mjs",
     "check:acceptable-use": "node scripts/check-acceptable-use.mjs",
+    "check:security-policy": "node scripts/check-security-policy.mjs",
     "lint": "oxlint src test benchmarks/mind2web scripts --deny-warnings",
     "typecheck": "tsc --noEmit",
     "test": "bun run build && bun test test/browser test/session test/benchmarks test/cli",

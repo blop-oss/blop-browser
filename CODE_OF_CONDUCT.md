@@ -46,14 +46,18 @@ issue warnings, or temporarily or permanently restrict participation. They will
 consider context, severity, repetition, impact, and whether the participant
 took responsibility for correcting the behavior.
 
-Report conduct concerns privately through the maintainer contact published on
-the [`blop-oss` organization profile](https://github.com/blop-oss). Until that
-profile provides a private contact, use
+The project does not publish a verified private conduct email. For conduct on
+GitHub, use
 [GitHub's private abuse-reporting tools](https://support.github.com/contact/report-abuse)
-and don't publish sensitive personal details in this repository.
+instead of opening a public issue. Include links, dates, and a concise account
+of the behavior. Remove credentials and unrelated personal data. Product
+vulnerabilities use the `[Security]` process in
+[`SECURITY.md`](SECURITY.md); suspected misuse of Blop Browser uses the
+`[Abuse]` process in [`ACCEPTABLE_USE.md`](ACCEPTABLE_USE.md).
 
-Maintainers will limit disclosure to the people needed to investigate and act.
-They will not knowingly assign a report to a maintainer named in the complaint.
+GitHub handles reports submitted through its form under its platform policies.
+Project maintainers may also act on conduct they can observe in project spaces.
+They will not knowingly assign review to a maintainer named in the complaint.
 
 ## Attribution
 
