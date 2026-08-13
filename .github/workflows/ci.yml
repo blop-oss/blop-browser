@@ -35,6 +35,9 @@ jobs:
       - name: Check acceptable-use documentation
         run: bun run check:acceptable-use
 
+      - name: Check security-policy documentation
+        run: bun run check:security-policy
+
       - name: Lint
         run: bun run lint
 
