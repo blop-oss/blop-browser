@@ -32,6 +32,9 @@ jobs:
       - name: Check local documentation links
         run: bun run check:links
 
+      - name: Check acceptable-use documentation
+        run: bun run check:acceptable-use
+
       - name: Lint
         run: bun run lint
 

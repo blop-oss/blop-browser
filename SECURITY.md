@@ -34,8 +34,14 @@ Include enough information to reproduce and assess the problem:
 
 Remove cookies, tokens, passwords, CDP WebSocket secrets, private URLs,
 screenshots, and profile data. If private vulnerability reporting isn't enabled,
-contact a maintainer through the private channel on the `blop-oss` organization
-profile instead of disclosing the report publicly.
+use [GitHub's private support form](https://support.github.com/contact) instead
+of disclosing the report publicly.
+
+For suspected malicious or unauthorized use that isn't a product
+vulnerability, follow the abuse-reporting process in
+the [acceptable-use policy](ACCEPTABLE_USE.md). Start a vulnerability report
+title with `[Security]`; the acceptable-use process uses `[Abuse]` so
+maintainers can triage the two categories separately.
 
 ## Security boundaries
 
@@ -46,7 +52,8 @@ Keep these boundaries in mind:
 
 - A CDP endpoint grants broad control over the attached browser profile. Bind
   local endpoints to `127.0.0.1`, use dedicated profiles when possible, and
-  never expose an unauthenticated endpoint publicly.
+  never expose an unauthenticated endpoint publicly. CDP access isn't evidence
+  that the profile owner or website authorized an automation workflow.
 - Attaching to an everyday Chrome profile gives the caller access to its active
   authenticated sessions and tabs.
 - Browser pages remain untrusted input. Page content can attempt prompt
@@ -55,7 +62,8 @@ Keep these boundaries in mind:
   network, mounted volumes, Docker socket access, and host configuration define
   the effective boundary.
 - Camoufox is an optional third-party browser download with its own supply-chain
-  and behavior risks.
+  and behavior risks. Browser fingerprint changes don't guarantee anonymity or
+  avoidance of bot protections and must not be used to bypass site controls.
 - Screenshots, semantic snapshots, logs, and benchmark reports can contain
   personal or confidential application data.
 
