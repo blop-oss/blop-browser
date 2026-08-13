@@ -2,10 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: Security report
     url: https://github.com/blop-oss/blop-browser/security/advisories/new
-    about: Report suspected vulnerabilities privately.
+    about: Report product vulnerabilities privately with a [Security] title prefix.
   - name: Abuse report
     url: https://github.com/blop-oss/blop-browser/security/advisories/new
     about: Report suspected misuse privately with an [Abuse] title prefix.
-  - name: Support and usage questions
-    url: https://github.com/blop-oss/blop-browser/discussions
-    about: Ask setup and usage questions after GitHub Discussions is enabled.
