@@ -36,9 +36,12 @@ export type RpcResponse = {
     message: string;
     contentBoundary?: ToolContentBoundary;
     policy?: {
-      code: "read_only" | "approval_denied";
+      code: "read_only" | "policy_denied" | "approval_denied" | "domain_denied";
       toolName: string;
       category: BrowserActionCategory;
+      decision: "allow" | "deny" | "ask";
+      phase?: "requested" | "redirect" | "navigation" | "new-page";
+      origin?: string;
     };
   };
 };

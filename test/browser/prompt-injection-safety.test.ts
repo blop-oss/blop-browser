@@ -125,6 +125,10 @@ describe("prompt-injection safety boundary", () => {
         });
       }
 
+      await tool(fixture.tools, "browser_set_viewport").execute({ width: 900, height: 700 });
+      await tool(fixture.tools, "browser_select_page").execute({ index: 0 });
+      expect(fixture.page.viewportSize()).toEqual({ width: 900, height: 700 });
+
       expect(await fixture.page.locator("body").getAttribute("data-changed")).toBeNull();
       expect(await fixture.page.getByLabel("Name").inputValue()).toBe("");
       expect(await fixture.page.getByLabel("Confirm").isChecked()).toBe(false);

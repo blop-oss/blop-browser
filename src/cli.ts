@@ -889,6 +889,9 @@ async function handleDaemonRequest(
           code: error.code,
           toolName: error.toolName,
           category: error.category,
+          decision: error.decision,
+          ...(error.phase ? { phase: error.phase } : {}),
+          ...(error.origin ? { origin: error.origin } : {}),
         } : undefined,
       );
     }

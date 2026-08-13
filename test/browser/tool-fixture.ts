@@ -1,5 +1,5 @@
 import { afterAll } from "bun:test";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { createBrowserTools } from "../../src/create-tools.js";
 import type { HarnessAction } from "../../src/types.js";
 import type { BrowserSafetyPolicy } from "../../src/tools/types.js";
@@ -21,6 +21,11 @@ export async function setupToolPage(
     traceRecorder?: TraceRecorder;
     captureStepScreenshots?: boolean;
     liveFrame?: () => { data: Buffer; seq?: number; timestamp?: number } | null;
+    configureContext?: (
+      context: BrowserContext,
+      page: Page,
+      serverUrl: string,
+    ) => void | Promise<void>;
   } = {},
 ) {
   const server = await startFixtureServer([
@@ -32,6 +37,7 @@ export async function setupToolPage(
   const browser = sharedBrowser;
   const context = await browser.newContext({ bypassCSP: true });
   const page = await context.newPage();
+  await options.configureContext?.(context, page, server.url);
   const pages: Page[] = [page];
   context.on("page", (popup) => {
     pages.push(popup);

@@ -591,6 +591,7 @@ describe("blop-browser CLI", () => {
         code: "read_only",
         toolName: "browser_click",
         category: "pointer",
+        decision: "deny",
       },
     }));
     const status = await runCli(["--session", session, "status", "--json"], runtimeDir);
