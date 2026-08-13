@@ -3,10 +3,44 @@
 
 export type TestStatus = "passed" | "failed" | "error";
 
+/**
+ * Provenance attached to browser-tool output. Hosts must keep this boundary
+ * when passing tool results to a model: page-derived text is data, never an
+ * instruction from the harness or host.
+ */
+export type BrowserContentBoundary = {
+  source: "browser";
+  trust: "untrusted";
+  url: string;
+};
+
+export type HarnessContentBoundary = {
+  source: "harness";
+  trust: "trusted";
+};
+
+export type CallerContentBoundary = {
+  source: "caller";
+  trust: "untrusted";
+};
+
+export type MixedContentBoundary = {
+  source: "mixed";
+  trust: "untrusted";
+  browser: BrowserContentBoundary;
+};
+
+export type ToolContentBoundary =
+  | BrowserContentBoundary
+  | CallerContentBoundary
+  | HarnessContentBoundary
+  | MixedContentBoundary;
+
 export type HarnessAction = {
   name: string;
   input: Record<string, unknown>;
   output: string;
+  outputBoundary?: ToolContentBoundary;
   metadata?: Record<string, unknown>;
   timestamp: string;
   durationMs: number;
