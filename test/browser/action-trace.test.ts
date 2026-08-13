@@ -162,6 +162,7 @@ describe("browser action traces", () => {
     expect(Buffer.byteLength(trace.json(), "utf8")).toBeLessThanOrEqual(1_024);
     expect(Buffer.byteLength(trace.json(true), "utf8")).toBeLessThanOrEqual(1_024);
     expect(Buffer.byteLength(trace.timeline(), "utf8")).toBeLessThanOrEqual(1_024);
+    expect(Buffer.byteLength(JSON.stringify(trace.events()), "utf8")).toBeLessThanOrEqual(1_024);
 
     expect(() => (events as unknown as HarnessAction[]).push(action("browser_click", {}, "no"))).toThrow();
     expect(() => ((exported.events[0] as { command: string }).command = "changed")).toThrow();

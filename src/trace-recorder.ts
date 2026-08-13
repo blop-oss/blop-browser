@@ -255,7 +255,7 @@ export function createTraceRecorder(options: TraceRecorderOptions = {}): TraceRe
       }
       return immutableCopy(immutableEvent);
     },
-    events: () => immutableCopy(storedEvents),
+    events: () => snapshot().events,
     snapshot,
     timeline: () => formatTraceTimeline(snapshot(), maxStringLength, maxExportBytes),
     json: (pretty = false) => {
