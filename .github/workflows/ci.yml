@@ -32,6 +32,9 @@ jobs:
       - name: Check local documentation links
         run: bun run check:links
 
+      - name: Check comparison evidence
+        run: bun run check:comparison
+
       - name: Check acceptable-use documentation
         run: bun run check:acceptable-use
 
