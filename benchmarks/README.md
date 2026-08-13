@@ -43,6 +43,11 @@ tool errors, model calls, and provider-reported token usage.
 
 Use these artifacts together:
 
+- [`detection/README.md`](detection/README.md) for the loopback-only Chromium
+  and Camoufox signal protocol. It records browser-observable evidence and
+  limitations, not a detection score. Its
+  [`RESULTS.md`](detection/RESULTS.md) publishes a bounded six-attempt local
+  result without committing raw fingerprint signals.
 - [`mind2web/README.md`](mind2web/README.md) for dataset preparation and live
   execution.
 - [`mind2web/core.ts`](mind2web/core.ts) for the agent-neutral task runner.

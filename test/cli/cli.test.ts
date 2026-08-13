@@ -40,6 +40,15 @@ afterEach(async () => {
 });
 
 describe("blop-browser CLI", () => {
+  test("describes Camoufox as compatibility coverage without bypass marketing", async () => {
+    const source = await readFile(join(import.meta.dir, "../../src/cli.ts"), "utf8");
+
+    expect(source).toContain("Camoufox, headless (fingerprint compatibility;");
+    expect(source).toContain("Camoufox, visible (fingerprint compatibility;");
+    expect(source).not.toMatch(/Camoufox[^\n]*anti-detect/i);
+    expect(source).not.toMatch(/Camoufox[^\n]*(?:undetectable|bypass)/i);
+  });
+
   test("opens configuration automatically on the first interactive browser command", () => {
     expect(shouldRunFirstConfig({
       argv: ["open", "https://example.com"],

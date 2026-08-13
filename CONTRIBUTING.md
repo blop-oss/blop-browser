@@ -91,8 +91,15 @@ Useful focused commands include:
 bun run test:browser
 bun run test:cli
 bun run test:benchmark-smoke
+bun run test:benchmarks
 bun run test:session
 ```
+
+If your change affects Chromium or Camoufox launch behavior, run the
+[local backend signal protocol](benchmarks/detection/README.md) against both
+installed backends. Keep its generated report out of Git and include the
+protocol hash, browser versions, all failures, and limitations in the pull
+request.
 
 The Docker suites skip when Docker isn't available. If your change touches
 `src/session/`, run the relevant container suite with a working Docker daemon

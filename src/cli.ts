@@ -388,8 +388,8 @@ async function promptForInstallMode(json: boolean): Promise<{ mode: InstallMode;
       "1. Playwright Chromium, headless (recommended for agents and CI)",
       "2. Playwright Chromium, visible (local debugging)",
       "3. Existing Chrome over CDP (reuse its profile, cookies, and tabs)",
-      "4. Camoufox, headless (anti-detect; downloads a third-party browser)",
-      "5. Camoufox, visible (anti-detect; downloads a third-party browser)",
+      "4. Camoufox, headless (fingerprint compatibility; downloads a third-party browser)",
+      "5. Camoufox, visible (fingerprint compatibility; downloads a third-party browser)",
     ].join("\n")}\n\n`);
     const answer = (await prompt.question("Mode [1]: ")).trim() || "1";
     const mode = INSTALL_MODES[Number(answer) - 1];
