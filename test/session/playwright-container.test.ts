@@ -1,6 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import type { Browser } from "playwright";
 import {
   _resetEgressCacheForTests,
   ensurePlaywrightContainer,

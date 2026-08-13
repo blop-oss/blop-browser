@@ -52,8 +52,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.14.0'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "22.14.0"
+          registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
       - name: Install trusted-publishing-compatible npm

@@ -13,7 +13,7 @@ import { createNavigationTools } from "./tools/navigation.js";
 import { createPageTools } from "./tools/page.js";
 import { createTabTools } from "./tools/tabs.js";
 import type { HarnessAction } from "./types.js";
-import type { BrowserToolContext, NativeToolBridge, NativeToolResult, FinishState, NetworkActivity } from "./tools/types.js";
+import type { BrowserToolContext, NativeToolBridge, NativeToolResult, NetworkActivity } from "./tools/types.js";
 import { captureActionState, describeActionOutcome } from "./tools/action-outcome.js";
 
 const OUTCOME_TOOLS = new Set([
@@ -101,7 +101,7 @@ export async function createBrowserTools(
           result = {
             ...result,
             content: `${result.content}\n\nOutcome: ${outcome}`,
-            metadata: { ...(result.metadata ?? {}), outcome },
+            metadata: { ...result.metadata, outcome },
           };
         }
       }
@@ -129,7 +129,7 @@ export async function createBrowserTools(
           } else {
             await ref.page.screenshot({ path: shotPath, type: "jpeg", quality: 45 });
           }
-          action.metadata = { ...(action.metadata ?? {}), stepScreenshotPath: shotPath };
+          action.metadata = { ...action.metadata, stepScreenshotPath: shotPath };
         } catch {
           // Page not screenshot-able right now; skip the visual for this step.
         }

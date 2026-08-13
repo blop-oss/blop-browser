@@ -31,7 +31,9 @@ import {
   type HarnessCliRuntime,
 } from "./cli/runtime.js";
 
-const HELP = `blop-browser — public CLI for @blopai/browser-harness
+const HELP = `Blop Browser — browser infrastructure for coding agents
+
+Package: @blopai/browser-harness
 
 Usage:
   blop-browser [--session NAME] [--browser chromium|camoufox] open URL [--json]
@@ -351,7 +353,7 @@ async function promptForInstallMode(json: boolean): Promise<{ mode: InstallMode;
   }
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    process.stdout.write(`Choose how Browser Harness should run by default:\n\n${[
+    process.stdout.write(`Choose how Blop Browser should run by default:\n\n${[
       "1. Playwright Chromium, headless (recommended for agents and CI)",
       "2. Playwright Chromium, visible (local debugging)",
       "3. Existing Chrome over CDP (reuse its profile, cookies, and tabs)",

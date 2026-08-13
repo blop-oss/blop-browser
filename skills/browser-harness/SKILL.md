@@ -1,13 +1,13 @@
 ---
 name: browser-harness
-description: Controls a persistent Playwright browser through the blop-browser CLI for UI verification, interaction, extraction, and screenshots. Use when a task requires a real browser, rendered page state, authenticated interaction, or deterministic web-app evidence.
+description: Controls persistent Blop Browser sessions through the blop-browser CLI for UI verification, interaction, extraction, and screenshots. Use when a task requires a real browser, rendered page state, authenticated interaction, or deterministic web-app evidence.
 license: MIT
 compatibility: Requires the blop-browser executable and a local Chrome, Chromium, Playwright, Chrome CDP endpoint, or optional Camoufox browser. Camoufox requires Node.js 22 or newer.
 metadata:
   package: "@blopai/browser-harness"
 ---
 
-# Browser harness
+# Blop Browser
 
 Use `blop-browser` through the shell. The CLI starts a local daemon on the
 first tool call and keeps the same browser, tabs, action trail, and semantic

@@ -1,0 +1,88 @@
+name: Bug report
+description: Report a reproducible problem in Blop Browser.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Blop Browser. Remove credentials, cookies,
+        private URLs, CDP secrets, screenshots, and authenticated browser data.
+        Report security problems through SECURITY.md instead.
+  - type: input
+    id: version
+    attributes:
+      label: Blop Browser version
+      description: Run `npm list -g @blopai/browser-harness` or provide the commit SHA.
+      placeholder: "@blopai/browser-harness 0.x.y"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, architecture, Node.js version, Bun version if used, and Docker version if relevant.
+      placeholder: "Ubuntu 24.04 x64; Node 22.14.0; Bun 1.3.13"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Browser mode
+      options:
+        - Chromium headless
+        - Chromium headed
+        - Existing Chrome over CDP
+        - Camoufox headless
+        - Camoufox headed
+        - Playwright Docker session
+        - Camoufox Docker session
+        - TypeScript API only
+        - Not browser-specific
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide the smallest commands or code that reproduce the problem using non-sensitive data.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Describe the observable result you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the complete error and whether the action trail recorded the failure.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor output
+      description: Paste `blop-browser doctor --json` after removing private paths or endpoints.
+      render: json
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Link a minimal repository or attach sanitized evidence if it helps reproduce the issue.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I removed secrets, authenticated state, and personal data.
+          required: true
+        - label: This isn't a security vulnerability.
+          required: true

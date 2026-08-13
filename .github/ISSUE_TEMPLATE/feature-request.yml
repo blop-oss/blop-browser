@@ -1,0 +1,63 @@
+name: Feature request
+description: Propose a scoped improvement to Blop Browser.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Blop Browser owns controlled browser tools, sessions, semantic
+        observations, and transport. Agent loops, model policy, test DSLs,
+        reporting platforms, and task-specific selectors belong in host projects.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the concrete browser-infrastructure problem and who encounters it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest public behavior or API change that solves the problem.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Controlled browser tool
+        - Semantic snapshot or reference
+        - CLI or JSON contract
+        - Browser session or transport
+        - Chrome/CDP integration
+        - Camoufox integration
+        - Docker browser service
+        - TypeScript API
+        - Benchmark or documentation
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and compatibility
+      description: Explain whether this expands execution capability or changes commands, imports, schemas, configuration, or session behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and alternatives
+      description: Share reproductions, benchmark plans, prior art, or workarounds without inventing performance claims.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and the roadmap.
+          required: true
+        - label: The request belongs in browser infrastructure rather than a host agent.
+          required: true

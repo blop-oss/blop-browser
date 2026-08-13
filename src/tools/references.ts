@@ -289,7 +289,7 @@ async function collectAiReferenceQueues(frame: Frame) {
   // Workaround: Bun's transpiler triggers a port-binding side effect when
   // "ai" appears as a direct string literal in ariaSnapshot options. Assign
   // it to a typed variable so the call site no longer matches the pattern.
-  const aiSnapshotMode: "ai" = "ai";
+  const aiSnapshotMode = "ai" as const;
   const snapshot = await frame.locator("body")
     .ariaSnapshot({ mode: aiSnapshotMode, timeout: 5000 } as { mode: "ai"; timeout: number })
     .catch(() => "");

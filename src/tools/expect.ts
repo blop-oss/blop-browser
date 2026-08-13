@@ -75,7 +75,9 @@ export async function describeFailure(page: Page, error: unknown): Promise<Error
 
 function actionabilityReason(message: string) {
   const lines = message
-    .replace(/\x1B\[[0-?]*[ -\/]*[@-~]/g, "")
+    // ANSI CSI escapes intentionally begin with the U+001B control character.
+    // oxlint-disable-next-line no-control-regex
+    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "")
     .split("\n")
     .map((line) => line.replace(/^\s*-\s*/, "").trim());
   for (let index = lines.length - 1; index >= 0; index -= 1) {

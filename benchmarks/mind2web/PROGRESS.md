@@ -9,7 +9,7 @@ latency, and model-context efficiency.
 Record a run only when it meets these conditions:
 
 - The task comes from the normalized Mind2Web dataset.
-- The agent interacts with the live website through browser-harness tools.
+- The agent interacts with the live website through Blop Browser tools.
 - The run uses no task-specific selectors, shortcuts, or silent action repair.
 - Malformed tool calls and failed actions remain visible in the metrics.
 - The model, provider, task ID, code commit, and run configuration are recorded.
@@ -23,17 +23,17 @@ harness regression.
 
 Each run records these metrics:
 
-| Metric | Meaning |
-| --- | --- |
-| Status | Final `finish_test` verdict. |
-| Duration | Wall-clock test duration in milliseconds. |
-| Actions | Browser actions recorded by the harness. |
-| Tool errors | Failed tool executions. |
-| Text-only nudges | Agent turns that didn't call a tool. |
-| LLM calls | Model requests made during the task. |
-| Peak input tokens | Largest prompt sent in one model request. |
+| Metric             | Meaning                                         |
+| ------------------ | ----------------------------------------------- |
+| Status             | Final `finish_test` verdict.                    |
+| Duration           | Wall-clock test duration in milliseconds.       |
+| Actions            | Browser actions recorded by the harness.        |
+| Tool errors        | Failed tool executions.                         |
+| Text-only nudges   | Agent turns that didn't call a tool.            |
+| LLM calls          | Model requests made during the task.            |
+| Peak input tokens  | Largest prompt sent in one model request.       |
 | Total input tokens | Sum of prompt tokens across all model requests. |
-| Output tokens | Sum of model output tokens. |
+| Output tokens      | Sum of model output tokens.                     |
 
 ## Regression policy
 
@@ -55,14 +55,14 @@ need three reproductions when the failure is deterministic.
 
 The first reference task is the Seattle hourly-weather task:
 
-| Field | Value |
-| --- | --- |
-| Task ID | `3cad7a9a-41bd-4c0a-9fd2-0cc34eb8e836` |
-| Split | `test_domain` |
-| Website | `weather` |
+| Field       | Value                                                                    |
+| ----------- | ------------------------------------------------------------------------ |
+| Task ID     | `3cad7a9a-41bd-4c0a-9fd2-0cc34eb8e836`                                   |
+| Split       | `test_domain`                                                            |
+| Website     | `weather`                                                                |
 | Instruction | Find the hourly weather forecast for Seattle, WA, for the next 24 hours. |
-| Model | `gemma4:31b-cloud` |
-| Provider | Ollama Cloud through local Ollama |
+| Model       | `gemma4:31b-cloud`                                                       |
+| Provider    | Ollama Cloud through local Ollama                                        |
 
 ## Progress log
 
@@ -70,12 +70,12 @@ The following runs established the initial benchmark baseline. The strict
 comparison kept malformed actions visible and used no automatic selector or
 tool-argument repair.
 
-| Date | Version | Status | Duration | Actions | Tool errors | Nudges | LLM calls | Peak input | Total input | Output | Notes |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| July 9, 2026 | Before history compaction | Pass | 193,970 ms | 14 | 5 | 2 | 23 | 64,438 | 853,858 | 963 | Repeated full snapshots accumulated in history; several ARIA lines were used as malformed selectors. |
-| July 9, 2026 | `4aad09c` + `b4dc8e4` | Pass | 56,814 ms | 14 | 0 | 2 | 13 | 20,486 | 167,106 | 587 | Stale snapshots compacted; structured-target instructions clarified; strict malformed-action behavior retained. |
-| July 9, 2026 | ARIA cap, run 1 (`ff3e2fe`) | Pass | 45,227 ms | 14 | 0 | 0 | 11 | 14,400 | 107,955 | 490 | Default ARIA payload capped at 12,000 characters. |
-| July 9, 2026 | ARIA cap, run 2 (`ff3e2fe`) | Pass | 92,203 ms | 14 | 0 | 5 | 20 | 14,689 | 220,398 | 1,083 | Same code; five empty provider turns demonstrate model variance. |
+| Date         | Version                     | Status |   Duration | Actions | Tool errors | Nudges | LLM calls | Peak input | Total input | Output | Notes                                                                                                           |
+| ------------ | --------------------------- | ------ | ---------: | ------: | ----------: | -----: | --------: | ---------: | ----------: | -----: | --------------------------------------------------------------------------------------------------------------- |
+| July 9, 2026 | Before history compaction   | Pass   | 193,970 ms |      14 |           5 |      2 |        23 |     64,438 |     853,858 |    963 | Repeated full snapshots accumulated in history; several ARIA lines were used as malformed selectors.            |
+| July 9, 2026 | `4aad09c` + `b4dc8e4`       | Pass   |  56,814 ms |      14 |           0 |      2 |        13 |     20,486 |     167,106 |    587 | Stale snapshots compacted; structured-target instructions clarified; strict malformed-action behavior retained. |
+| July 9, 2026 | ARIA cap, run 1 (`ff3e2fe`) | Pass   |  45,227 ms |      14 |           0 |      0 |        11 |     14,400 |     107,955 |    490 | Default ARIA payload capped at 12,000 characters.                                                               |
+| July 9, 2026 | ARIA cap, run 2 (`ff3e2fe`) | Pass   |  92,203 ms |      14 |           0 |      5 |        20 |     14,689 |     220,398 |  1,083 | Same code; five empty provider turns demonstrate model variance.                                                |
 
 Initial change:
 
@@ -105,12 +105,12 @@ Performance work also exposed failure modes that need hard safety boundaries:
 
 These experiments did not produce a stable improvement:
 
-| Experiment | Outcome | Decision |
-| --- | --- | --- |
-| Stronger batching and critical-point prompt rules | 22 calls, 16 actions, 1,173 output tokens. | Reverted. |
-| Six-turn empty-response budget | Two consecutive failed runs entered action cycles. | Reverted. |
-| Automatic compact observations after batches | Three passes; median 13 calls, but median output increased to 689. | Reverted. |
-| Exact-target prompt and strict-mode recovery prose | Slow passes and a cycle-guarded failure. | Reverted. |
+| Experiment                                         | Outcome                                                            | Decision  |
+| -------------------------------------------------- | ------------------------------------------------------------------ | --------- |
+| Stronger batching and critical-point prompt rules  | 22 calls, 16 actions, 1,173 output tokens.                         | Reverted. |
+| Six-turn empty-response budget                     | Two consecutive failed runs entered action cycles.                 | Reverted. |
+| Automatic compact observations after batches       | Three passes; median 13 calls, but median output increased to 689. | Reverted. |
+| Exact-target prompt and strict-mode recovery prose | Slow passes and a cycle-guarded failure.                           | Reverted. |
 
 Detailed results and rejected-run metrics live in `autoresearch.jsonl` and
 `experiments/worklog.md` at the repository root.

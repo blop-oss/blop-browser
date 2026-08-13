@@ -1,7 +1,7 @@
 [project]
 name = "mind2web-bench"
 version = "0.1.0"
-description = "Download and normalize Mind2Web tasks for browser-harness agents."
+description = "Download and normalize Mind2Web tasks for Blop Browser agents."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

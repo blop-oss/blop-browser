@@ -103,6 +103,6 @@ function locateFormTarget(context: BrowserToolContext, target: unknown) {
   }
 
   const targetText = selectorFor(target);
-  if (/^[.#\[]|^xpath=|^css=/.test(targetText)) return context.page.locator(targetText).first();
+  if (/^(?:[.#]|\[)|^xpath=|^css=/.test(targetText)) return context.page.locator(targetText).first();
   return context.page.getByLabel(targetText).first();
 }

@@ -2,7 +2,7 @@
   "name": "@blopai/mind2web-benchmark",
   "private": true,
   "type": "module",
-  "description": "Agent-neutral live Mind2Web benchmark for @blopai/browser-harness.",
+  "description": "Agent-neutral live Mind2Web benchmark for Blop Browser.",
   "scripts": {
     "bench:blop": "blop test adapters/blop.blop.ts --report-dir .mind2web/blop --reporter all",
     "bench:blop:headed": "blop test adapters/blop.blop.ts --report-dir .mind2web/blop --capture-screenshots --headed",
@@ -12,6 +12,6 @@
     "@blopai/cli": "^1.4.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }

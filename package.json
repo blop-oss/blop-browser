@@ -1,7 +1,7 @@
 {
   "name": "@blopai/browser-harness",
-  "version": "0.1.5",
-  "description": "Playwright browser harness for AI agents: controlled native tools, sessions, screencast, and optional Docker browser sandbox.",
+  "version": "0.1.6",
+  "description": "Blop Browser: browser infrastructure for coding agents with controlled tools, persistent sessions, CDP reuse, and optional Camoufox.",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -17,18 +17,35 @@
     "dist",
     "docker",
     "skills",
+    "docs",
+    "benchmarks/README.md",
+    "benchmarks/result.schema.json",
+    "benchmarks/mind2web/README.md",
+    "benchmarks/mind2web/PROGRESS.md",
     "README.md",
+    "ROADMAP.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "logo.svg",
     "LICENSE"
   ],
   "keywords": [
-    "browser",
+    "ai-agents",
+    "agent-tools",
+    "browser-automation",
+    "browser-cli",
+    "camoufox",
+    "claude-code",
+    "coding-agents",
+    "codex",
+    "llm-tools",
+    "opencode",
     "playwright",
-    "agent",
-    "harness",
-    "e2e",
-    "tools",
+    "typescript",
+    "web-automation",
     "cdp",
-    "testing"
+    "browser"
   ],
   "repository": {
     "type": "git",
@@ -40,12 +57,17 @@
   },
   "scripts": {
     "build": "tsc",
+    "format": "prettier --write '*.md' 'docs/**/*.md' '.github/**/*.{md,yml,yaml}' 'benchmarks/*.md' 'benchmarks/*.json' 'benchmarks/mind2web/*.md' 'scripts/**/*.mjs' package.json",
+    "format:check": "prettier --check '*.md' 'docs/**/*.md' '.github/**/*.{md,yml,yaml}' 'benchmarks/*.md' 'benchmarks/*.json' 'benchmarks/mind2web/*.md' 'scripts/**/*.mjs' package.json",
+    "check:links": "node scripts/check-markdown-links.mjs",
+    "lint": "oxlint src test benchmarks/mind2web scripts --deny-warnings",
     "typecheck": "tsc --noEmit",
     "test": "bun run build && bun test test/browser test/session test/benchmarks test/cli",
     "test:browser": "bun test test/browser",
     "test:session": "bun test test/session",
     "test:benchmarks": "bun test test/benchmarks",
     "test:cli": "bun test test/cli",
+    "test:benchmark-smoke": "bun test test/benchmarks/mind2web.test.ts",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },
@@ -55,6 +77,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.18",
+    "oxlint": "^1.78.0",
+    "prettier": "^3.9.6",
     "typescript": "^5.8.3"
   },
   "engines": {

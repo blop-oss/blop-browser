@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/blop-oss/browser-harness/blob/master/benchmarks/result.schema.json",
+  "title": "Blop Browser comparison benchmark record",
+  "description": "One reproducible run record. Unknown measurements use null and must be explained in measurement_notes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "benchmark",
+    "system",
+    "agent",
+    "task",
+    "environment",
+    "outcome",
+    "measurements",
+    "evidence",
+    "measurement_notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "protocol_version", "dataset", "dataset_revision"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "protocol_version": { "type": "string", "minLength": 1 },
+        "dataset": { "type": "string", "minLength": 1 },
+        "dataset_revision": { "type": ["string", "null"] }
+      }
+    },
+    "system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "commit", "interface", "browser_mode"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": ["string", "null"] },
+        "commit": { "type": ["string", "null"] },
+        "interface": {
+          "enum": ["cli", "mcp", "typescript", "python", "other"]
+        },
+        "browser_mode": { "type": "string", "minLength": 1 }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "host_version", "provider", "model", "settings"],
+      "properties": {
+        "host": { "type": "string", "minLength": 1 },
+        "host_version": { "type": ["string", "null"] },
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "settings": { "type": "object" }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "split", "website", "authenticated", "repetition"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "split": { "type": ["string", "null"] },
+        "website": { "type": "string", "minLength": 1 },
+        "authenticated": { "type": "boolean" },
+        "repetition": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "architecture",
+        "node_version",
+        "browser_name",
+        "browser_version",
+        "hardware",
+        "network"
+      ],
+      "properties": {
+        "os": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "node_version": { "type": ["string", "null"] },
+        "browser_name": { "type": "string", "minLength": 1 },
+        "browser_version": { "type": ["string", "null"] },
+        "hardware": { "type": "string", "minLength": 1 },
+        "network": { "type": "string", "minLength": 1 }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "failure_class", "reason"],
+      "properties": {
+        "status": { "enum": ["passed", "failed", "blocked"] },
+        "failure_class": {
+          "enum": [
+            null,
+            "agent",
+            "harness",
+            "site",
+            "authentication",
+            "bot_detection",
+            "network",
+            "provider",
+            "environment",
+            "unknown"
+          ]
+        },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wall_clock_ms",
+        "cold_start_ms",
+        "warm_session_ms",
+        "input_tokens",
+        "output_tokens",
+        "tool_calls",
+        "tool_errors",
+        "authenticated_session",
+        "parallel_isolation"
+      ],
+      "properties": {
+        "wall_clock_ms": { "type": "integer", "minimum": 0 },
+        "cold_start_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "warm_session_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "input_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "output_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "tool_calls": { "type": "integer", "minimum": 0 },
+        "tool_errors": { "type": "integer", "minimum": 0 },
+        "authenticated_session": {
+          "enum": [
+            "not_applicable",
+            "preserved",
+            "restored",
+            "failed",
+            "not_measured"
+          ]
+        },
+        "parallel_isolation": {
+          "enum": ["passed", "failed", "not_applicable", "not_measured"]
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "title", "assertions", "artifact_paths"],
+      "properties": {
+        "url": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "assertions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "artifact_paths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "measurement_notes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}
