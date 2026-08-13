@@ -312,6 +312,10 @@ describe("blop-browser CLI", () => {
     expect(skill).toContain("blop-browser");
     expect(skill).toContain("install camoufox");
     expect(skill).toContain("Ask the user");
+    expect(skill).toContain(
+      "https://github.com/blop-oss/blop-browser/blob/master/ACCEPTABLE_USE.md",
+    );
+    expect(skill).not.toContain("../../ACCEPTABLE_USE.md");
 
     const opencodeProject = join(runtimeDir, "opencode-consumer");
     const opencode = await runCli([

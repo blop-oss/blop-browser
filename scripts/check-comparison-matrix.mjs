@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const MATRIX_START = "<!-- comparison-matrix:start -->";
@@ -17,13 +17,21 @@ const EXPECTED_PRODUCTS = [
   "Browser Use CLI + Browser Harness",
 ];
 
+const FIRST_PARTY_GITHUB_REPOSITORIES = new Set([
+  "microsoft/playwright-cli",
+  "microsoft/playwright-mcp",
+  "vercel-labs/agent-browser",
+  "browser-use/browser-use",
+  "browser-use/browser-harness",
+]);
+
 const REQUIRED_CAPABILITIES = [
   "Primary interface",
   "Observation and action model",
   "State and profile default",
   "Parallel-session isolation",
   "Existing browser or profile reuse",
-  "Browser engines and anti-detect",
+  "Browser engines and fingerprinting",
   "Embedding and extension surface",
   "Warm or remote execution",
   "Traces and recordings",
@@ -34,10 +42,10 @@ const REQUIRED_CAPABILITIES = [
 ];
 
 const REQUIRED_UNKNOWNS = [
-  ["Browser engines and anti-detect", "Playwright CLI"],
-  ["Browser engines and anti-detect", "Playwright MCP"],
-  ["Browser engines and anti-detect", "agent-browser"],
-  ["Browser engines and anti-detect", "Browser Use CLI + Browser Harness"],
+  ["Browser engines and fingerprinting", "Playwright CLI"],
+  ["Browser engines and fingerprinting", "Playwright MCP"],
+  ["Browser engines and fingerprinting", "agent-browser"],
+  ["Browser engines and fingerprinting", "Browser Use CLI + Browser Harness"],
   ["Embedding and extension surface", "Playwright CLI"],
   ["Embedding and extension surface", "Playwright MCP"],
   ["Warm or remote execution", "Playwright CLI"],
@@ -55,7 +63,7 @@ const PINNED_GITHUB_BLOB =
   /^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/[0-9a-f]{40}\/.+#L\d+(?:-L\d+)?$/;
 const LOCAL_LINE_LINK = /^\.\.\/.+#L\d+(?:-L\d+)?$/;
 
-export function validateComparisonDocument(source) {
+export function validateComparisonDocument(source, options = {}) {
   const failures = [];
   const matrix = section(
     source,
@@ -73,7 +81,11 @@ export function validateComparisonDocument(source) {
   );
 
   if (matrix) validateMatrix(matrix, failures);
-  if (sourceTable) validateSourceSnapshot(sourceTable, failures);
+  if (sourceTable)
+    validateSourceSnapshot(sourceTable, failures, options.blopVersion);
+  if (options.documentPath) {
+    failures.push(...validateLocalEvidenceLinks(source, options.documentPath));
+  }
 
   return failures;
 }
@@ -134,27 +146,13 @@ function validateMatrix(source, failures) {
       }
 
       for (const link of links) {
-        if (
-          link.startsWith("https://github.com/") &&
-          !PINNED_GITHUB_BLOB.test(link)
-        ) {
-          failures.push(
-            `${location}: GitHub evidence must use a 40-character commit and line anchor: ${link}`,
-          );
-        } else if (
-          !link.startsWith("https://") &&
-          !LOCAL_LINE_LINK.test(link)
-        ) {
-          failures.push(
-            `${location}: local evidence must be a parent-relative path with a line anchor: ${link}`,
-          );
-        }
+        validateEvidenceLink(link, location, failures);
       }
     }
   }
 }
 
-function validateSourceSnapshot(source, failures) {
+function validateSourceSnapshot(source, failures, blopVersion) {
   const rows = tableRows(source);
   const expectedHeader = [
     "Product",
@@ -184,6 +182,11 @@ function validateSourceSnapshot(source, failures) {
     }
     if (!/\[[^\]]+\]\([^)]+\)/.test(row[1]))
       failures.push(`${row[0]}: reviewed source must be linked`);
+    for (const link of [...row[1].matchAll(MARKDOWN_LINK)].map(
+      (match) => match[1],
+    )) {
+      validateEvidenceLink(link, `${row[0]} source snapshot`, failures);
+    }
     if (
       !/\b(?:\d+\.\d+\.\d+|[0-9a-f]{40}|this document's commit)\b/.test(row[2])
     ) {
@@ -191,6 +194,74 @@ function validateSourceSnapshot(source, failures) {
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(row[3]))
       failures.push(`${row[0]}: reviewed date must use YYYY-MM-DD`);
+  }
+
+  if (blopVersion) {
+    const blopRow = rows.slice(2).find((row) => row[0] === "Blop Browser");
+    if (blopRow && !blopRow[2].startsWith(`${blopVersion};`)) {
+      failures.push(
+        `Blop Browser: source snapshot version must match package.json (${blopVersion})`,
+      );
+    }
+  }
+}
+
+export function validateLocalEvidenceLinks(source, documentPath) {
+  const failures = [];
+  const repositoryRoot = resolve(dirname(documentPath), "..");
+  const links = [...source.matchAll(MARKDOWN_LINK)]
+    .map((match) => match[1])
+    .filter((link) => LOCAL_LINE_LINK.test(link));
+
+  for (const link of new Set(links)) {
+    const match = link.match(/^(\.\.\/.+)#L(\d+)(?:-L(\d+))?$/);
+    if (!match) continue;
+    const target = resolve(dirname(documentPath), match[1]);
+    const targetRelative = relative(repositoryRoot, target);
+    if (targetRelative.startsWith("..") || targetRelative === "") {
+      failures.push(`local evidence escapes the repository: ${link}`);
+      continue;
+    }
+    if (!existsSync(target)) {
+      failures.push(`local evidence target does not exist: ${link}`);
+      continue;
+    }
+
+    const lineCount = readFileSync(target, "utf8").split(/\r?\n/).length;
+    const start = Number(match[2]);
+    const end = Number(match[3] ?? match[2]);
+    if (start < 1 || end < start || end > lineCount) {
+      failures.push(
+        `local evidence line range is invalid (${lineCount} lines): ${link}`,
+      );
+    }
+  }
+
+  return failures;
+}
+
+function validateEvidenceLink(link, location, failures) {
+  if (link.startsWith("https://github.com/")) {
+    const repository = link.match(
+      /^https:\/\/github\.com\/([^/]+\/[^/]+)\//,
+    )?.[1];
+    if (!repository || !FIRST_PARTY_GITHUB_REPOSITORIES.has(repository)) {
+      failures.push(
+        `${location}: evidence is not from a reviewed first-party repository: ${link}`,
+      );
+    } else if (!PINNED_GITHUB_BLOB.test(link)) {
+      failures.push(
+        `${location}: GitHub evidence must use a 40-character commit and line anchor: ${link}`,
+      );
+    }
+  } else if (link.startsWith("https://")) {
+    failures.push(
+      `${location}: external evidence must use a reviewed first-party GitHub repository: ${link}`,
+    );
+  } else if (!LOCAL_LINE_LINK.test(link)) {
+    failures.push(
+      `${location}: local evidence must be a parent-relative path with a line anchor: ${link}`,
+    );
   }
 }
 
@@ -232,8 +303,15 @@ function run() {
     repositoryRoot,
     process.argv[2] ?? "docs/browser-tool-comparison.md",
   );
+  const packageManifest = JSON.parse(
+    readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
+  );
   const failures = validateComparisonDocument(
     readFileSync(documentPath, "utf8"),
+    {
+      blopVersion: packageManifest.version,
+      documentPath,
+    },
   );
   if (failures.length > 0) {
     process.stderr.write(

@@ -35,6 +35,9 @@ jobs:
       - name: Check comparison evidence
         run: bun run check:comparison
 
+      - name: Check acceptable-use documentation
+        run: bun run check:acceptable-use
+
       - name: Lint
         run: bun run lint
 

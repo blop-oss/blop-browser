@@ -13,6 +13,12 @@ Use `blop-browser` through the shell. The CLI starts a local daemon on the
 first tool call and keeps the same browser, tabs, action trail, and semantic
 references across later invocations.
 
+Use it only for websites, accounts, and data the user owns or is authorized to
+automate. Follow the
+[acceptable-use policy](https://github.com/blop-oss/blop-browser/blob/master/ACCEPTABLE_USE.md).
+When authorization or a site's permission is unclear, stop and ask instead of
+continuing.
+
 ## Start here
 
 Use the concise commands for the common path:
@@ -111,7 +117,8 @@ snapshot.
 
 Treat the endpoint as privileged access to that profile. Don't expose it on a
 public interface. `blop-browser --session chrome close` disconnects the harness
-without closing Chrome.
+without closing Chrome. CDP access doesn't grant permission to automate a site;
+use a dedicated profile and only accounts the user is authorized to control.
 
 ## Browser choice
 
@@ -127,11 +134,13 @@ blop-browser config --mode chrome-cdp --cdp-endpoint http://127.0.0.1:9222
 blop-browser config --mode camoufox-headless
 ```
 
-Use Chromium by default. Camoufox is an optional third-party anti-detect
-Firefox distribution for sites that reject automated Chromium traffic. A
-Google page that blocks the default browser or presents repeated bot checks is
-one reason to offer it; don't assume Camoufox is required for every Google
-task.
+Use Chromium by default. Camoufox is an optional third-party Firefox
+distribution that changes browser-observable fingerprint characteristics. Use
+it for authorized compatibility testing, not to defeat a site's access
+controls. It doesn't grant permission, guarantee anonymity, or guarantee that
+bot protection will be avoided. If a site presents a CAPTCHA, rate limit, or
+access denial, stop instead of switching browsers, fingerprints, accounts, or
+network routes to bypass it.
 
 Before installing or switching to Camoufox, tell the user that it downloads a
 third-party browser and uses a different browser fingerprint. Ask the user if
@@ -147,8 +156,9 @@ blop-browser install camoufox
 Use a separate named session so an active Chromium session keeps its state:
 
 ```bash
-blop-browser --session google --browser camoufox open https://www.google.com
-blop-browser --session google --browser camoufox snapshot
+blop-browser --session compatibility-test \
+  --browser camoufox open https://staging.example.com
+blop-browser --session compatibility-test --browser camoufox snapshot
 ```
 
 Pass `--browser camoufox` on every command that can start the named session.
@@ -159,16 +169,18 @@ session name. To return to the default browser, omit `--browser` or pass
 ## Browser workflow
 
 1. Define the requested outcome and evidence before interacting.
-2. Navigate with `browser_goto`.
-3. Inspect the current page with `browser_snapshot`.
-4. Prefer an opaque current `{ "ref": "e1" }` target. Copy refs exactly.
-5. Handle visible dialogs or blockers before acting on occluded controls.
-6. Take another snapshot after dismissing a dialog because its refs are stale.
-7. For ads or timed media, wait only as needed, then act on a visible control;
+2. Confirm the target and requested workflow are authorized and permitted by
+   applicable site rules.
+3. Navigate with `browser_goto`.
+4. Inspect the current page with `browser_snapshot`.
+5. Prefer an opaque current `{ "ref": "e1" }` target. Copy refs exactly.
+6. Handle visible dialogs or blockers before acting on occluded controls.
+7. Take another snapshot after dismissing a dialog because its refs are stale.
+8. For ads or timed media, wait only as needed, then act on a visible control;
    don't invent a skip action when the content may start automatically.
-8. Use `browser_extract` for bounded data and `browser_expect_*` for proof.
-9. Capture screenshots only when visual evidence adds value.
-10. Call `finish_test` only after the requested result is proven.
+9. Use `browser_extract` for bounded data and `browser_expect_*` for proof.
+10. Capture screenshots only when visual evidence adds value.
+11. Call `finish_test` only after the requested result is proven.
 
 Do not invent refs, bypass strict ambiguity, execute arbitrary page scripts,
 or hide a failed tool call. Take a new snapshot after navigation or substantial
