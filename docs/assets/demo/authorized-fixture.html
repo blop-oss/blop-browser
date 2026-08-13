@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Authorized Blop Browser demo fixture</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      body {
+        align-items: center;
+        background: #f4f7fb;
+        color: #172033;
+        display: flex;
+        justify-content: center;
+        margin: 0;
+        min-height: 100vh;
+      }
+      main {
+        background: white;
+        border: 1px solid #d8e0ec;
+        border-radius: 1rem;
+        box-shadow: 0 1rem 3rem #1b2b4a1a;
+        padding: 2.5rem;
+        width: min(30rem, calc(100vw - 5rem));
+      }
+      h1 {
+        margin-top: 0;
+      }
+      button {
+        background: #2559d6;
+        border: 0;
+        border-radius: 0.5rem;
+        color: white;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 700;
+        padding: 0.75rem 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>Local fixture - authorized demo</p>
+      <h1>Release checklist</h1>
+      <p id="status" aria-live="polite">Review pending</p>
+      <button id="mark-reviewed" type="button">Mark reviewed</button>
+    </main>
+    <script>
+      const button = document.querySelector("#mark-reviewed");
+      const status = document.querySelector("#status");
+      button.addEventListener("click", () => {
+        status.textContent = "Review complete";
+        button.textContent = "Reviewed";
+        button.disabled = true;
+      });
+    </script>
+  </body>
+</html>

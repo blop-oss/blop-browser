@@ -7,6 +7,12 @@ browser setup. An agent adapter owns model calls and tool dispatch. The broader
 authenticated-session, and parallel-isolation measurements that aren't yet
 fully instrumented here.
 
+Run live tasks only on targets you are authorized to automate. Dataset inclusion
+doesn't grant current website permission. Review the
+[acceptable-use policy](../../ACCEPTABLE_USE.md) before selecting tasks, and
+exclude purchases, messages, account changes, access-control bypass, and other
+consequential workflows.
+
 <!-- prettier-ignore -->
 > [!NOTE]
 > The original Mind2Web benchmark scores predicted actions against cached HTML.

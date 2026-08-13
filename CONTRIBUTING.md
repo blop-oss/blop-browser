@@ -14,6 +14,8 @@ test, and bug-fix pull requests can start directly when their scope is clear.
 Read these files before changing behavior:
 
 - [`AGENTS.md`](AGENTS.md) for architecture and safety constraints.
+- [Acceptable-use policy](ACCEPTABLE_USE.md) for authorized use and safe
+  examples.
 - [`README.md`](README.md) for the public CLI and TypeScript contracts.
 - [`test/browser/README.md`](test/browser/README.md) for browser-test scope.
 - [`benchmarks/README.md`](benchmarks/README.md) for benchmark evidence rules.
@@ -72,6 +74,7 @@ sequence before opening a pull request.
 bun install --frozen-lockfile
 bun run format:check
 bun run check:links
+bun run check:acceptable-use
 bun run lint
 bun run typecheck
 bun run test

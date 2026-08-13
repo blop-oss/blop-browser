@@ -61,8 +61,9 @@ still require maintainer setup.
 
 - [ ] Enable GitHub Discussions, then verify the support link in the issue
       chooser and add initial **Help** and **Show and tell** categories.
-- [ ] Enable private vulnerability reporting so the `SECURITY.md` advisory link
-      accepts reports.
+- [ ] Enable private vulnerability reporting, then verify `[Security]` reports
+      from `SECURITY.md` and `[Abuse]` reports from `ACCEPTABLE_USE.md` reach
+      the private repository inbox.
 - [ ] Verify bug and feature issue forms render and apply labels that exist.
 - [ ] Review the candidate backlog in
       [`good-first-issues.md`](good-first-issues.md), create approved issues, and add
@@ -72,9 +73,15 @@ still require maintainer setup.
 ## Demo and documentation
 
 The README links to a recording workflow but intentionally embeds no demo until
-one has been recorded and reviewed.
+one has been recorded and reviewed. Launch material must follow the
+[acceptable-use policy](../ACCEPTABLE_USE.md) and use the bundled local fixture;
+don't substitute authenticated accounts, third-party targets, access controls,
+or consequential actions.
 
 - [ ] Record the demo with [`demo-recording.md`](demo-recording.md).
+- [ ] Confirm the recording uses
+      [`authorized-fixture.html`](assets/demo/authorized-fixture.html) and no
+      live website or authenticated account.
 - [ ] Review every frame for credentials, personal data, private URLs, and
       misleading edits.
 - [ ] Commit `docs/assets/demo/blop-browser-demo.mp4` and
