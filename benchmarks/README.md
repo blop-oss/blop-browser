@@ -5,6 +5,11 @@ Blop Browser and comparable browser interfaces. It separates deterministic
 local checks from live-site and model-dependent measurements, and it provides a
 shared output schema without claiming results that haven't been run.
 
+Run benchmarks only against local fixtures or websites and accounts you are
+authorized to automate. The [acceptable-use policy](../ACCEPTABLE_USE.md)
+applies to dataset selection, browser modes, task execution, and retained
+evidence.
+
 ## Evaluation questions
 
 The benchmark program measures whether a browser interface helps the same agent
@@ -76,6 +81,12 @@ result, not evidence that warm-session or parallel isolation behavior passed.
 The live runner uses normalized Mind2Web tasks stored outside Git. You need
 Python 3.10 or newer, `uv`, network access to Hugging Face for the initial
 download, a supported agent host, and model-provider credentials.
+
+Mind2Web task data doesn't grant permission to automate the current website.
+Before building a live task set, remove tasks that aren't permitted by the
+target's current terms or that require purchases, messages, account changes,
+CAPTCHA bypass, or other consequential actions. Treat rate limits, CAPTCHAs,
+and access denials as terminal site outcomes.
 
 ```bash
 cd benchmarks/mind2web

@@ -11,6 +11,9 @@ headless Chromium, your existing Chrome profile, or Camoufox. Blop Browser is
 for Codex, Claude Code, OpenCode, and custom agent hosts that need browser
 control without adopting another agent framework.
 
+Use Blop Browser only on websites, accounts, and data you own or are authorized
+to access. Read the [acceptable-use policy](ACCEPTABLE_USE.md) before setup.
+
 ```bash
 npm i -g @blopai/browser-harness
 blop-browser open https://example.com
@@ -32,8 +35,9 @@ Blop Browser differs from general-purpose browser automation by combining:
 - Controlled, bounded browser tools instead of arbitrary page-script or CDP
   execution.
 - Persistent or disposable isolated sessions selected with `--session`.
-- Existing Chrome and authenticated profile reuse over CDP.
-- Optional Camoufox sessions when a Firefox-based anti-detect browser is needed.
+- Existing Chrome and authorized profile reuse over CDP.
+- Optional Camoufox sessions for compatibility testing across browser
+  fingerprints.
 - A public TypeScript API for embedding the same tools in your own agent host.
 - Warm Playwright Chromium and Camoufox Docker browser services.
 - An agent-neutral CLI, stable JSON output, and an installable agent skill.
@@ -48,16 +52,17 @@ A real demo has not been recorded yet. The repository intentionally does not
 embed a fabricated or broken media asset.
 
 The [demo recording guide](docs/demo-recording.md) provides a shot-by-shot,
-reproducible script for an authenticated application. It covers attaching to an
-existing Chrome profile, taking a semantic snapshot, interacting through refs,
-proving that state persists between CLI commands, and displaying the live
-screencast dashboard. Final media belongs in `docs/assets/demo/` after it has
-been recorded and reviewed.
+reproducible script for the bundled local fixture. It covers taking a semantic
+snapshot, interacting through refs, proving that state persists between CLI
+commands, and displaying the live screencast dashboard. Final media belongs in
+`docs/assets/demo/` after it has been recorded and reviewed.
 
 ## Install
 
 Blop Browser requires Node.js 22 or newer. It uses an installed Chrome or
 Chromium when available; you can also install Playwright Chromium or Camoufox.
+Use each mode only for workflows permitted by the
+[acceptable-use policy](ACCEPTABLE_USE.md).
 
 ```bash
 npm install --global @blopai/browser-harness
@@ -88,19 +93,22 @@ Paste this prompt into Codex, Claude Code, OpenCode, or another coding agent:
 ```text
 Install the Blop Browser skill and set up the blop-browser CLI:
 
-1. Run: npx skills add blop-oss/blop-browser --skill browser-harness -g
-2. Run: npm install --global @blopai/browser-harness
-3. Run: blop-browser doctor --json
-4. Read the doctor output. If configuration.mode is null, ask me how I want to
+1. Read https://github.com/blop-oss/blop-browser/blob/master/ACCEPTABLE_USE.md
+   and confirm this setup is for websites and accounts I own or am authorized
+   to automate.
+2. Run: npx skills add blop-oss/blop-browser --skill browser-harness -g
+3. Run: npm install --global @blopai/browser-harness
+4. Run: blop-browser doctor --json
+5. Read the doctor output. If configuration.mode is null, ask me how I want to
    use the browser and then run the matching config command:
    - Headless Chromium (agents/CI): blop-browser config --mode chromium-headless
    - Visible Chromium (local debugging): blop-browser config --mode chromium-headed
    - Existing Chrome over CDP: blop-browser config --mode chrome-cdp --cdp-endpoint http://127.0.0.1:9222
    - Camoufox headless: blop-browser config --mode camoufox-headless
    - Camoufox visible: blop-browser config --mode camoufox-headed
-5. If the mode is managed Chromium or Camoufox, confirm the setup with:
+6. If the mode is managed Chromium or Camoufox, confirm the setup with:
    blop-browser open https://example.com && blop-browser snapshot
-6. If the mode is chrome-cdp, get my explicit approval to access that Chrome
+7. If the mode is chrome-cdp, get my explicit approval to access that Chrome
    profile, then confirm with:
    blop-browser --attach-existing open https://example.com && blop-browser snapshot
 ```
@@ -134,11 +142,11 @@ Use a named session to isolate concurrent agents or workflows. Each command
 targets the same daemon until you close it or its idle timeout expires.
 
 ```bash
-blop-browser --session checkout open https://example.com
-blop-browser --session checkout snapshot
-blop-browser --session checkout click e6
-blop-browser --session checkout screenshot checkout --full-page
-blop-browser --session checkout close
+blop-browser --session docs-review open https://example.com
+blop-browser --session docs-review snapshot
+blop-browser --session docs-review click e6
+blop-browser --session docs-review screenshot docs-review --full-page
+blop-browser --session docs-review close
 ```
 
 Managed sessions use a dedicated persistent profile and downloads directory for
@@ -174,7 +182,7 @@ never deletes the external Chrome profile.
 Use `--json` for a stable machine-readable response envelope:
 
 ```bash
-blop-browser --session checkout snapshot --json
+blop-browser --session docs-review snapshot --json
 ```
 
 ```json
@@ -238,23 +246,29 @@ Keep the debugging port on localhost. A CDP endpoint grants full control over
 that Chrome profile. Never infer permission from a saved configuration or
 environment variable. You can set `BLOP_BROWSER_CDP_ENDPOINT` instead of
 passing the endpoint, but the first command must still include
-`--attach-existing`.
+`--attach-existing`. Attach only to a dedicated profile and accounts you are
+authorized to control; CDP access doesn't grant permission to automate a
+website.
 
 ## Use Camoufox
 
-Camoufox is an optional Firefox-based browser with native fingerprint
-protection. Chromium remains the default and is the better choice for
-deterministic testing of applications you control.
+Camoufox is an optional Firefox-based browser that changes browser-observable
+fingerprint characteristics. Chromium remains the default and is the better
+choice for deterministic testing of applications you control.
 
 ```bash
 blop-browser install camoufox
-blop-browser --session research \
-  --browser camoufox open https://example.com
+blop-browser --session compatibility-test \
+  --browser camoufox open https://staging.example.com
 ```
 
 The Camoufox browser binary is a separate third-party download. Review the
 [Camoufox project](https://github.com/daijro/camoufox) before using it in your
-environment.
+environment. Use it only for authorized compatibility testing. It doesn't grant
+permission to access a site, guarantee anonymity, or guarantee that bot
+protections or other site controls will be avoided. If a site denies access,
+stop instead of switching fingerprints to bypass the denial. See the
+[acceptable-use policy](ACCEPTABLE_USE.md).
 
 ## Embed the TypeScript API
 
@@ -439,6 +453,7 @@ Review the project policies before reporting sensitive problems or taking part
 in the community.
 
 - [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Acceptable-use policy](ACCEPTABLE_USE.md)
 - [Security policy](SECURITY.md)
 - [MIT license](LICENSE)
 
