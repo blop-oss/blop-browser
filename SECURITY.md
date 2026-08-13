@@ -2,26 +2,50 @@
 
 Blop Browser controls real browsers and can attach to authenticated Chrome
 profiles. Treat its CDP endpoints, runtime files, screenshots, logs, and browser
-state as sensitive. This policy explains which versions receive fixes and how
-to report a vulnerability privately.
+state as sensitive. This policy identifies supported versions, explains how to
+report a product vulnerability privately, and assigns responsibility for
+security triage.
 
 ## Supported versions
 
-Security fixes target the latest published minor release. The project is still
-in the `0.x` series, so users must upgrade to the newest release before
-reporting a problem that only affects an older version.
+Security fixes target the latest published release. This table is current for
+the `0.1.7` release and must be updated when a new version is published.
 
-| Version                | Supported   |
-| ---------------------- | ----------- |
-| Latest `0.1.x` release | Yes         |
-| Older releases         | No          |
-| Unreleased `master`    | Best effort |
+| Version             | Security support |
+| ------------------- | ---------------- |
+| `0.1.7`             | Supported        |
+| `0.1.6` and earlier | Not supported    |
+| Unreleased `master` | Best effort      |
 
-## Report a vulnerability
+Upgrade to the latest release before reporting a problem that only affects an
+older version. A report about `master` helps development, but `master` is not a
+released support channel.
 
-Use GitHub's
-[private vulnerability report](https://github.com/blop-oss/blop-browser/security/advisories/new).
-Don't open a public issue for a suspected vulnerability.
+## Choose the correct reporting path
+
+Sensitive vulnerability and abuse reports are private. Support questions and
+ordinary bugs are public, so remove credentials, authenticated state, private
+URLs, and personal data before submitting them.
+
+| Report type                             | Use this channel                                                                                                           |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| A vulnerability in Blop Browser         | [Private vulnerability report](https://github.com/blop-oss/blop-browser/security/advisories/new) with a `[Security]` title |
+| Suspected malicious or unauthorized use | Follow the private `[Abuse]` process in the [acceptable-use policy](ACCEPTABLE_USE.md)                                     |
+| Setup or usage support                  | [Public support question](https://github.com/blop-oss/blop-browser/issues/new?template=support-question.yml)               |
+| A non-sensitive product bug             | [Public bug report](https://github.com/blop-oss/blop-browser/issues/new?template=bug-report.yml)                           |
+| A community conduct concern             | Follow the private process in the [Code of Conduct](CODE_OF_CONDUCT.md)                                                    |
+
+Do not move vulnerability details into a public support request, bug report,
+discussion, pull request, or commit.
+
+## Report a vulnerability privately
+
+GitHub private vulnerability reporting is enabled for the canonical public
+repository. Sign in to a GitHub account, open the
+[private vulnerability report](https://github.com/blop-oss/blop-browser/security/advisories/new),
+select **Start a private vulnerability report**, and start the title with
+`[Security]`. The report and its discussion stay in GitHub's private repository
+security-advisory workflow until disclosure.
 
 Include enough information to reproduce and assess the problem:
 
@@ -33,15 +57,53 @@ Include enough information to reproduce and assess the problem:
 - The realistic impact and any known mitigations.
 
 Remove cookies, tokens, passwords, CDP WebSocket secrets, private URLs,
-screenshots, and profile data. If private vulnerability reporting isn't enabled,
-use [GitHub's private support form](https://support.github.com/contact) instead
-of disclosing the report publicly.
+screenshots, and profile data. The project does not publish a separate verified
+security email. If GitHub says the private form is unavailable, do not send the
+vulnerability through another public project channel. Use
+[GitHub Support](https://support.github.com/contact) to report the broken GitHub
+form without including vulnerability details, then retry the private report.
 
-For suspected malicious or unauthorized use that isn't a product
-vulnerability, follow the abuse-reporting process in
-the [acceptable-use policy](ACCEPTABLE_USE.md). Start a vulnerability report
-title with `[Security]`; the acceptable-use process uses `[Abuse]` so
-maintainers can triage the two categories separately.
+## Security triage ownership
+
+Repository administrators jointly own coverage of the private advisory inbox.
+The first repository administrator to acknowledge a report becomes the
+**security triage maintainer** for that report and records the assignment in the
+private advisory discussion. If that maintainer becomes unavailable, another
+repository administrator must record an explicit handoff in the same
+discussion.
+
+The security triage maintainer owns these tasks:
+
+- Acknowledge receipt and keep the reporter informed.
+- Preserve the report's confidentiality and remove unnecessary secrets from
+  working material.
+- Reproduce the issue where possible and assess affected versions, severity,
+  realistic impact, exploit status, and mitigations.
+- Coordinate review, remediation, release, advisory publication, and a CVE
+  request when appropriate.
+- Keep vulnerability triage separate from `[Abuse]`, conduct, support, and
+  public issue workflows.
+
+`CODEOWNERS` review rules do not grant access to private security advisories, so
+code-review ownership is not a substitute for this triage assignment.
+
+## Response targets
+
+The following are working targets for this small maintainer team, not guaranteed
+service-level agreements:
+
+- Acknowledge a complete or incomplete report within **5 business days** of its
+  GitHub submission time and identify the security triage maintainer.
+- Provide an initial scope and severity assessment within **10 business days**
+  of submission. If required evidence is missing, state what is needed and give
+  the reporter a provisional status within the same window.
+- Post a status update at least every **14 calendar days** while a confirmed
+  vulnerability remains open.
+
+Remediation and release dates depend on severity, active exploitation, fix
+complexity, affected users, and downstream coordination. Missing a target does
+not make public disclosure safe; add a comment to the existing private report
+to request an update.
 
 ## Security boundaries
 
@@ -107,9 +169,29 @@ enforce domain/network boundaries outside this package. No browser-tool
 contract can make an everyday authenticated profile safe for arbitrary hostile
 pages.
 
-## Disclosure process
+## Coordinated disclosure
 
-Maintainers will acknowledge a complete report when they review it, reproduce
-the issue where possible, and coordinate a fix and release before public
-disclosure. Response times aren't guaranteed while the project is maintained by
-a small team. Credit is optional and will follow the reporter's preference.
+The security triage maintainer and reporter will coordinate a disclosure date
+after affected versions and mitigations are understood. Maintainers will
+prepare a fix and supported release before publication when practical. They may
+publish sooner when active exploitation or user protection makes prompt notice
+necessary, and they will explain that decision in the private report.
+
+The public advisory will describe affected and patched versions, impact,
+mitigations, and credit. Credit is optional and follows the reporter's stated
+preference. This process does not require an unlimited embargo or promise a
+fixed remediation date.
+
+## Verify the private channel
+
+Maintainers must verify the repository setting after ownership changes and
+before each release:
+
+```bash
+gh api repos/blop-oss/blop-browser/private-vulnerability-reporting --jq .enabled
+```
+
+The expected output is `true`. This read-only configuration check confirms that
+GitHub has enabled the private reporting entry point. It does not submit a
+report, test notification delivery, or prove that a reporter completed the
+form. Do not create a fabricated vulnerability report merely to test routing.

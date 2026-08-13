@@ -48,6 +48,10 @@ detection or any other site control. Don't use either feature as a bypass.
 
 ## Report abuse
 
+Report a product vulnerability through the `[Security]` process in the
+[security policy](SECURITY.md), not as abuse. For suspected malicious or
+unauthorized use that isn't a product vulnerability, use the process below.
+
 Report suspected misuse in a
 [private GitHub security advisory](https://github.com/blop-oss/blop-browser/security/advisories/new)
 and select **Start a private vulnerability report**. Start the title with

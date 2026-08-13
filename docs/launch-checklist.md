@@ -59,11 +59,14 @@ The repository includes issue forms, a pull-request template, contribution
 guidance, a code of conduct, and a security policy. Their GitHub-dependent paths
 still require maintainer setup.
 
-- [ ] Enable GitHub Discussions, then verify the support link in the issue
-      chooser and add initial **Help** and **Show and tell** categories.
-- [ ] Enable private vulnerability reporting, then verify `[Security]` reports
-      from `SECURITY.md` and `[Abuse]` reports from `ACCEPTABLE_USE.md` reach
-      the private repository inbox.
+- [x] Provide a public support-question issue form. GitHub Discussions remains
+      optional and must not replace that route until it is enabled and verified.
+- [x] Enable private vulnerability reporting and confirm on 2026-08-14 that
+      GitHub's read-only repository API returns `enabled: true`. This checks the
+      setting; it doesn't submit a report or test notification delivery.
+- [ ] Confirm that the next genuine `[Security]` or `[Abuse]` report reaches the
+      private repository inbox. Don't create a fabricated sensitive report for
+      this check.
 - [ ] Verify bug and feature issue forms render and apply labels that exist.
 - [ ] Review the candidate backlog in
       [`good-first-issues.md`](good-first-issues.md), create approved issues, and add
