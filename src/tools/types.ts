@@ -5,6 +5,8 @@ import type {
   HarnessCriticalPoint,
   HarnessScreenshot,
   TestStatus,
+  BrowserContentBoundary,
+  ToolContentBoundary,
 } from "../types.js";
 import type { TraceRecorder } from "../trace-recorder.js";
 
@@ -14,13 +16,72 @@ export type NativeModelImage = {
   dataUrl: string;
   caption?: string;
   detail?: "auto" | "low" | "high";
+  /** Images originate in the browser and must not bypass the text boundary. */
+  contentBoundary: BrowserContentBoundary;
 };
 
-export type NativeToolResult = Promise<{
+export type NativeModelImageInput = Omit<NativeModelImage, "contentBoundary">;
+
+export type NativeToolPayload = {
   content: string;
   metadata?: Record<string, unknown>;
+  modelImages?: NativeModelImageInput[];
+};
+
+export type NativeToolResult = Promise<Omit<NativeToolPayload, "modelImages"> & {
+  /**
+   * Provenance for the whole result. Browser and mixed content is always
+   * untrusted; hosts must preserve this instead of promoting `content` into a
+   * trusted instruction channel. Every attached model image also carries its
+   * own browser boundary.
+   */
+  contentBoundary: ToolContentBoundary;
   modelImages?: NativeModelImage[];
 }>;
+
+export type BrowserActionCategory =
+  | "pointer"
+  | "keyboard"
+  | "form"
+  | "file-upload"
+  | "page-lifecycle";
+
+export type BrowserApprovalRequest = {
+  toolName: string;
+  category: BrowserActionCategory;
+  /**
+   * Bounded, recursively copied input for approval UI. Secret-bearing fields
+   * such as text, values, and file paths are replaced by redaction summaries.
+   * The category is determined only from the static tool registry, never from
+   * this caller-controlled data.
+   */
+  input: Readonly<Record<string, unknown>>;
+  url: string;
+  testId: string;
+};
+
+export type BrowserApprovalDecision = {
+  approved: boolean;
+  /** Safe host-authored explanation. Do not copy a reason from page content. */
+  reason?: string;
+};
+
+export type BrowserApprovalPolicy = (
+  request: BrowserApprovalRequest,
+) => BrowserApprovalDecision | Promise<BrowserApprovalDecision>;
+
+export type BrowserSafetyPolicy = {
+  /**
+   * Read-only mode rejects input-dispatching and page-lifecycle tools before
+   * they reach Playwright. Navigation and observation tools remain available.
+   */
+  mode?: "read-write" | "read-only";
+  /**
+   * Called before each potentially state-changing interaction. A missing,
+   * malformed, or negative decision denies the action.
+   */
+  approvalPolicy?: BrowserApprovalPolicy;
+};
 
 export type NativeToolBridge = {
   name: string;
@@ -53,6 +114,8 @@ export type BrowserToolContext = {
   /** Optional bounded action trace sink. The central record path emits every
    * successful and failed tool action to it in completion order. */
   traceRecorder?: TraceRecorder;
+  /** Optional host-owned enforcement for browser interactions. */
+  safety?: BrowserSafetyPolicy;
   /**
    * Console/pageerror/requestfailed entries collected by the host's page
    * listeners. When provided, the browser_console_logs tool lets the agent
@@ -101,6 +164,6 @@ export type BrowserToolContext = {
   record: (
     name: string,
     input: Record<string, unknown>,
-    fn: () => NativeToolResult,
+    fn: () => Promise<NativeToolPayload>,
   ) => NativeToolResult;
 };

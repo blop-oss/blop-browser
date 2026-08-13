@@ -15,10 +15,23 @@ import { createTabTools } from "./tools/tabs.js";
 import type { HarnessAction } from "./types.js";
 import type { BrowserToolContext, NativeToolBridge, NativeToolResult, NetworkActivity } from "./tools/types.js";
 import { captureActionState, describeActionOutcome } from "./tools/action-outcome.js";
-import { isStateChangingCommand, type TraceMediaPosition } from "./trace-recorder.js";
+import {
+  isStateChangingCommand,
+  type TraceApproval,
+  type TraceMediaPosition,
+} from "./trace-recorder.js";
+import {
+  BROWSER_TOOL_CONTENT_KINDS,
+  BrowserSafetyError,
+  browserModelImages,
+  browserToolError,
+  defaultToolContentBoundary,
+  enforceBrowserSafety,
+  mixedContentBoundary,
+} from "./tools/safety.js";
 
 const OUTCOME_TOOLS = new Set([
-  "browser_goto", "browser_back", "browser_forward", "browser_reload",
+  "browser_goto", "browser_go_back", "browser_go_forward", "browser_reload",
   "browser_click", "browser_double_click", "browser_right_click", "browser_drag_and_drop",
   "browser_click_at",
   "browser_type", "browser_press", "browser_clear", "browser_check", "browser_uncheck",
@@ -80,18 +93,52 @@ export async function createBrowserTools(
       const startedAt = performance.now();
       const traceStartedAt = new Date().toISOString();
       const urlBefore = pageUrl(ref.page);
-      const before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
+      let before = null;
+      let approval: TraceApproval | undefined;
       let result: Awaited<NativeToolResult>;
       try {
-        result = await fn();
+        const safetyDecision = await enforceBrowserSafety({
+          page: ref.page,
+          testId: options.testId,
+          safety: options.safety,
+          toolName: name,
+          input,
+        });
+        if (safetyDecision) {
+          approval = {
+            status: "approved",
+            policy: "approval-policy",
+            category: safetyDecision.category,
+          };
+        }
+        before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
+        const payload = await fn();
+        result = {
+          content: payload.content,
+          ...(payload.metadata ? { metadata: payload.metadata } : {}),
+          ...(payload.modelImages ? {
+            modelImages: browserModelImages(ref.page, payload.modelImages),
+          } : {}),
+          contentBoundary: defaultToolContentBoundary(name, ref.page),
+        };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const toolError = browserToolError(error, ref.page);
+        const message = toolError.message;
         const timestamp = new Date().toISOString();
         const action: HarnessAction = {
           name,
           input,
           output: message,
-          metadata: { error: message },
+          outputBoundary: toolError.contentBoundary,
+          metadata: {
+            error: message,
+            ...(toolError instanceof BrowserSafetyError ? {
+              policyBlocked: true,
+              policyCode: toolError.code,
+              policyTool: toolError.toolName,
+              policyCategory: toolError.category,
+            } : {}),
+          },
           timestamp,
           durationMs: elapsed(startedAt),
         };
@@ -105,7 +152,7 @@ export async function createBrowserTools(
           stateChanging: isStateChangingCommand(name),
           media: traceMedia(undefined, options.liveFrame?.()),
         });
-        throw error;
+        throw toolError;
       }
       if (before) {
         const outcome = describeActionOutcome(before, await captureActionState(ref.page));
@@ -113,6 +160,7 @@ export async function createBrowserTools(
           result = {
             ...result,
             content: `${result.content}\n\nOutcome: ${outcome}`,
+            contentBoundary: mixedContentBoundary(ref.page),
             metadata: { ...result.metadata, outcome },
           };
         }
@@ -121,7 +169,11 @@ export async function createBrowserTools(
         name,
         input,
         output: result.content,
-        metadata: result.metadata,
+        outputBoundary: result.contentBoundary,
+        metadata: {
+          ...result.metadata,
+          ...(approval ? { approval } : {}),
+        },
         timestamp: new Date().toISOString(),
         durationMs: elapsed(startedAt),
       };
@@ -160,6 +212,7 @@ export async function createBrowserTools(
         urlBefore,
         urlAfter: pageUrl(ref.page),
         stateChanging: isStateChangingCommand(name),
+        approval,
         media: traceMedia(action.metadata, options.liveFrame?.()),
       });
       return result;
@@ -179,10 +232,18 @@ export async function createBrowserTools(
     ...createLifecycleTools(context),
   ];
 
+  const allTools = [...tools, createBatchTool(tools, context)];
+  const unclassified = allTools
+    .map((tool) => tool.name)
+    .filter((name) => !(name in BROWSER_TOOL_CONTENT_KINDS));
+  if (unclassified.length) {
+    throw new Error(`Browser tool content-boundary classification is missing for: ${unclassified.join(", ")}`);
+  }
+
   // The batch tool replays the other tools by name, so it is built last from
   // the finished list. Inner steps record their own actions, keeping the
   // visual trail and live progress stream identical to unbatched execution.
-  return [...tools, createBatchTool(tools)];
+  return allTools;
 }
 
 function elapsed(startedAt: number) {

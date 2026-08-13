@@ -142,8 +142,28 @@ blop-browser --session checkout snapshot --json
 ```
 
 ```json
-{ "ok": true, "result": { "content": "...", "metadata": {} } }
+{
+  "ok": true,
+  "result": {
+    "content": "...",
+    "contentBoundary": {
+      "source": "browser",
+      "trust": "untrusted",
+      "url": "https://example.com/"
+    },
+    "metadata": {}
+  }
+}
 ```
+
+Every tool result has a `contentBoundary`. Direct page observations use
+`source: "browser"`; action results that combine harness text with page state
+use `source: "mixed"`; and messages generated only by the harness use
+`source: "harness"`. Lifecycle results that echo host input use
+`source: "caller"`. Browser, mixed, and caller results are always
+`trust: "untrusted"`. Model images carry their own untrusted browser boundary.
+Preserve these fields when adapting tools to a model SDK, and pass untrusted
+content as tool data—not as system, developer, or host instructions.
 
 The CLI exposes every native tool through a self-describing interface:
 
@@ -224,6 +244,9 @@ const tools = await createBrowserTools({
   actions,
   screenshots: [],
   finishState: { status: null, reason: null },
+  safety: {
+    mode: "read-only",
+  },
 });
 
 const goto = tools.find((tool) => tool.name === "browser_goto")!;
@@ -231,10 +254,65 @@ await goto.execute({ url: "https://example.com" });
 await browser.close();
 ```
 
+`safety.mode: "read-only"` rejects pointer, keyboard, form, file-upload, and
+page-closing interactions before they reach Playwright. Navigation and
+observation remain available so a host can inspect links and traverse public
+documents without granting input dispatch; this is a capability mode, not an
+HTTP safe-method guarantee. Denied attempts throw `BrowserSafetyError` and are
+still recorded in `actions` with deterministic policy metadata.
+
+For the standalone CLI, set `BLOP_BROWSER_READ_ONLY=1` before the command that
+starts a named session. The daemon keeps that mode for the session, and
+`status --json` reports it as `safetyMode`:
+
+```bash
+BLOP_BROWSER_READ_ONLY=1 blop-browser --session research open https://example.com
+blop-browser --session research snapshot
+```
+
+An embedding host can instead gate potentially mutating actions with its own
+approval workflow:
+
+```ts
+const tools = await createBrowserTools({
+  // ...the page, artifact, action, and finish-state options above
+  safety: {
+    approvalPolicy: async (request) => {
+      const approved = await approvalUi.confirm({
+        tool: request.toolName,
+        category: request.category,
+        url: request.url,
+        input: request.input,
+      });
+      return { approved, reason: approved ? undefined : "User declined." };
+    },
+  },
+});
+```
+
+The callback runs for every statically classified interaction, including
+`browser_upload_file`, before any locator or input dispatch. Its URL has query
+and fragment data removed, and text, values, credentials, and file paths in
+`request.input` are replaced by bounded redaction summaries. Treat the
+remaining target labels as untrusted caller input; page wording never changes
+the action category. Returning no decision or `{ approved: false }` denies the
+action.
+
+These controls bound consequences; they do not solve prompt injection. A page
+can mutate itself or make network requests while loading, and a GET navigation
+can have server-side effects on a poorly designed site. Read-only mode does not
+disable JavaScript, networking, cookies, downloads initiated by the page, or
+access already granted to an attached profile. Approval categories are coarse
+capability labels, not a semantic understanding of purchases, messages, or
+account changes. Use a dedicated browser profile, restrict network/filesystem
+access outside the harness, keep domain/user policy in the host, and require a
+human decision for consequential actions.
+
 The public API also exports `NativeToolBridge`, `startScreencast`, structured
-target helpers, and warm Docker sessions. `startPlaywrightContainer()` and
-`startCamoufoxContainer()` keep their server containers running while each
-caller receives an isolated browser connection.
+target helpers, `BrowserSafetyError`, the safety policy types, and warm Docker
+sessions. `startPlaywrightContainer()` and `startCamoufoxContainer()` keep their
+server containers running while each caller receives an isolated browser
+connection.
 
 ## Compare browser interfaces
 
@@ -280,6 +358,7 @@ Explicit CLI flags take precedence where both forms exist.
 | `BLOP_BROWSER_EXECUTABLE_PATH`          | Auto-detect                      | Chrome or Chromium path               |
 | `BLOP_BROWSER_CAMOUFOX_EXECUTABLE_PATH` | Auto-detect                      | Camoufox path                         |
 | `BLOP_BROWSER_IDLE_TIMEOUT_MS`          | `1800000`                        | Daemon idle timeout                   |
+| `BLOP_BROWSER_READ_ONLY`                | Unset                            | Set to `1` to deny interactions       |
 | `BLOP_BROWSER_RUNTIME_DIR`              | OS temporary directory           | Private session state                 |
 | `BLOP_PLAYWRIGHT_CONTAINER`             | `blop-playwright`                | Warm Playwright server container name |
 | `BLOP_PLAYWRIGHT_IMAGE`                 | Playwright-version-derived image | Playwright image override             |
