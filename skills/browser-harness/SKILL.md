@@ -227,6 +227,20 @@ daemon metadata:
 blop-browser --session research destroy
 ```
 
+Export the ordered, redacted action trace during a session or after a
+persistent session closes:
+
+```bash
+blop-browser --session research trace
+blop-browser --session research trace --json
+```
+
+Trace files are bounded but can still contain sensitive page output, visited
+origins, target labels, approval decisions, and workflow intent. Review them
+before sharing. Persistent sessions retain trace artifacts until `destroy`;
+disposable sessions remove them on close or idle shutdown. Trace redaction is a
+mitigation, not proof that arbitrary browser output contains no secrets.
+
 For an attached Chrome session, `destroy` preserves the external profile. The
 daemon also exits after its idle timeout. Run `blop-browser doctor` when browser
 discovery or daemon startup fails. The doctor output reports Chromium and

@@ -16,6 +16,11 @@ import type { HarnessAction } from "./types.js";
 import type { BrowserToolContext, NativeToolBridge, NativeToolResult, NetworkActivity } from "./tools/types.js";
 import { captureActionState, describeActionOutcome } from "./tools/action-outcome.js";
 import {
+  isStateChangingCommand,
+  type TraceApproval,
+  type TraceMediaPosition,
+} from "./trace-recorder.js";
+import {
   BROWSER_TOOL_CONTENT_KINDS,
   BrowserSafetyError,
   browserModelImages,
@@ -86,16 +91,26 @@ export async function createBrowserTools(
     getNetworkActivity: () => activityFor(ref.page),
     record: async (name, input, fn): NativeToolResult => {
       const startedAt = performance.now();
+      const traceStartedAt = new Date().toISOString();
+      const urlBefore = pageUrl(ref.page);
       let before = null;
+      let approval: TraceApproval | undefined;
       let result: Awaited<NativeToolResult>;
       try {
-        await enforceBrowserSafety({
+        const safetyDecision = await enforceBrowserSafety({
           page: ref.page,
           testId: options.testId,
           safety: options.safety,
           toolName: name,
           input,
         });
+        if (safetyDecision) {
+          approval = {
+            status: "approved",
+            policy: "approval-policy",
+            category: safetyDecision.category,
+          };
+        }
         before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
         const payload = await fn();
         result = {
@@ -109,6 +124,7 @@ export async function createBrowserTools(
       } catch (error) {
         const toolError = browserToolError(error, ref.page);
         const message = toolError.message;
+        const timestamp = new Date().toISOString();
         const action: HarnessAction = {
           name,
           input,
@@ -123,9 +139,19 @@ export async function createBrowserTools(
               policyCategory: toolError.category,
             } : {}),
           },
-          timestamp: new Date().toISOString(),
+          timestamp,
           durationMs: elapsed(startedAt),
         };
+        const traceError = recordTrace(options.traceRecorder, action, {
+          startedAt: traceStartedAt,
+          completedAt: timestamp,
+          urlBefore,
+          urlAfter: pageUrl(ref.page),
+          stateChanging: isStateChangingCommand(name),
+          approval,
+          media: traceMedia(undefined, options.liveFrame?.()),
+        });
+        if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
         options.actions.push(action);
         options.onAction?.(action);
         throw toolError;
@@ -146,7 +172,10 @@ export async function createBrowserTools(
         input,
         output: result.content,
         outputBoundary: result.contentBoundary,
-        metadata: result.metadata,
+        metadata: {
+          ...result.metadata,
+          ...(approval ? { approval } : {}),
+        },
         timestamp: new Date().toISOString(),
         durationMs: elapsed(startedAt),
       };
@@ -166,11 +195,27 @@ export async function createBrowserTools(
           } else {
             await ref.page.screenshot({ path: shotPath, type: "jpeg", quality: 45 });
           }
-          action.metadata = { ...action.metadata, stepScreenshotPath: shotPath };
+          action.metadata = {
+            ...action.metadata,
+            stepScreenshotPath: shotPath,
+            traceScreenshotIndex: options.actions.length + 1,
+            ...(typeof frame?.seq === "number" ? { screencastFrameSequence: frame.seq } : {}),
+            ...(typeof frame?.timestamp === "number" ? { screencastFrameTimestamp: frame.timestamp } : {}),
+          };
         } catch {
           // Page not screenshot-able right now; skip the visual for this step.
         }
       }
+      const traceError = recordTrace(options.traceRecorder, action, {
+        startedAt: traceStartedAt,
+        completedAt: action.timestamp,
+        urlBefore,
+        urlAfter: pageUrl(ref.page),
+        stateChanging: isStateChangingCommand(name),
+        approval,
+        media: traceMedia(action.metadata, options.liveFrame?.()),
+      });
+      if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
       options.actions.push(action);
       options.onAction?.(action);
       return result;
@@ -206,4 +251,63 @@ export async function createBrowserTools(
 
 function elapsed(startedAt: number) {
   return Math.max(0, Number((performance.now() - startedAt).toFixed(1)));
+}
+
+function pageUrl(page: Page) {
+  try {
+    return page.url();
+  } catch {
+    return "";
+  }
+}
+
+function traceMedia(
+  metadata: Record<string, unknown> | undefined,
+  frame: { seq?: number; timestamp?: number } | null | undefined,
+): TraceMediaPosition | undefined {
+  const screenshotPath = typeof metadata?.stepScreenshotPath === "string"
+    ? metadata.stepScreenshotPath
+    : typeof metadata?.path === "string" ? metadata.path : undefined;
+  const screenshotIndex = typeof metadata?.traceScreenshotIndex === "number"
+    ? metadata.traceScreenshotIndex
+    : undefined;
+  const frameSequence = typeof metadata?.screencastFrameSequence === "number"
+    ? metadata.screencastFrameSequence
+    : frame?.seq;
+  const frameTimestamp = typeof metadata?.screencastFrameTimestamp === "number"
+    ? metadata.screencastFrameTimestamp
+    : frame?.timestamp;
+  if (!screenshotPath && frameSequence === undefined) return undefined;
+  return {
+    ...(screenshotPath ? {
+      screenshot: {
+        path: screenshotPath,
+        ...(screenshotIndex !== undefined ? { index: screenshotIndex } : {}),
+      },
+    } : {}),
+    ...(frameSequence !== undefined ? {
+      screencast: {
+        frame: frameSequence,
+        ...(frameTimestamp !== undefined ? { timestamp: new Date(frameTimestamp).toISOString() } : {}),
+      },
+    } : {}),
+  };
+}
+
+function recordTrace(
+  recorder: BrowserToolContext["traceRecorder"],
+  action: HarnessAction,
+  context: Parameters<NonNullable<BrowserToolContext["traceRecorder"]>["record"]>[1],
+) {
+  if (!recorder) return;
+  try {
+    recorder.record(action, context);
+  } catch (error) {
+    // A recorder failure happens after the browser command has already run.
+    // Surface it in the normal action trail without throwing and inviting a
+    // host to retry a state-changing command.
+    const name = error instanceof Error ? error.name : typeof error;
+    const safeName = String(name).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 80) || "unknown";
+    return `Trace recorder failed (${safeName}).`;
+  }
 }

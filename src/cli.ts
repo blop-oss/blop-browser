@@ -30,7 +30,13 @@ import {
   type BrowserName,
   type HarnessCliRuntime,
 } from "./cli/runtime.js";
+import { readPersistedCliTrace } from "./cli/trace-store.js";
 import { getBrowserSessionScope, type BrowserProfileMode } from "./session/scope.js";
+import {
+  createTraceRecorder,
+  formatTraceTimeline,
+  type HarnessTraceExport,
+} from "./trace-recorder.js";
 import type { ToolContentBoundary } from "./types.js";
 import { BrowserSafetyError, BrowserToolError } from "./tools/safety.js";
 
@@ -50,6 +56,7 @@ Usage:
   blop-browser [--session NAME] tools [--json]
   blop-browser [--session NAME] describe TOOL [--json]
   blop-browser [--session NAME] status [--json]
+  blop-browser [--session NAME] trace [--json]
   blop-browser [--session NAME] close [--json]
   blop-browser [--session NAME] destroy [--json]
   blop-browser skill show
@@ -199,6 +206,8 @@ export async function main(argv = process.argv.slice(2)) {
   let response: RpcResponse;
   if (parsed.command === "status") {
     response = await requestWithoutStarting(parsed.session, "status", parsed.profileMode);
+  } else if (parsed.command === "trace") {
+    response = await requestWithoutStarting(parsed.session, "export_trace", parsed.profileMode);
   } else if (parsed.command === "close") {
     response = await requestWithoutStarting(parsed.session, "shutdown");
   } else if (parsed.command === "destroy") {
@@ -224,7 +233,8 @@ export async function main(argv = process.argv.slice(2)) {
     const endpoint = await ensureDaemon(parsed);
     response = await requestDaemon(endpoint, "call_tool", shortcut);
   }
-  printResponse(response, parsed.json);
+  if (parsed.command === "trace" && !parsed.json) printTraceResponse(response);
+  else printResponse(response, parsed.json);
   if (!response.ok) process.exitCode = 1;
 }
 
@@ -360,7 +370,7 @@ export function shouldRunFirstConfig(input: {
 }) {
   const { argv, command, configured, json, interactive } = input;
   if (configured || json || !interactive) return false;
-  if (["", "help", "--help", "-h", "config", "install", "skill", "doctor", "status", "close", "destroy", "_daemon"]
+  if (["", "help", "--help", "-h", "config", "install", "skill", "doctor", "status", "trace", "close", "destroy", "_daemon"]
     .includes(command)) return false;
   return !["--browser", "--cdp-endpoint", "--attach-existing", "--headless", "--headed"]
     .some((option) => argv.includes(option));
@@ -715,6 +725,7 @@ async function destroySessionState(session: string): Promise<RpcResponse> {
 
   let scope = getBrowserSessionScope(session, { runtimeDirectory: paths.directory });
   let wasActive = false;
+  let traceEvent: unknown;
   try {
     const endpoint = await readEndpoint(session);
     if (endpoint && await daemonIsHealthy(endpoint)) {
@@ -722,7 +733,8 @@ async function destroySessionState(session: string): Promise<RpcResponse> {
       const status = await requestDaemon(endpoint, "status");
       const activeScope = (status.result as { sessionScope?: typeof scope } | undefined)?.sessionScope;
       if (activeScope) scope = activeScope;
-      await requestDaemon(endpoint, "shutdown");
+      const shutdown = await requestDaemon(endpoint, "shutdown", { reason: "destroy" });
+      traceEvent = (shutdown.result as { traceEvent?: unknown } | undefined)?.traceEvent;
       const deadline = Date.now() + 5_000;
       while (Date.now() < deadline && await daemonIsHealthy(endpoint)) {
         await new Promise((resolve) => setTimeout(resolve, 25));
@@ -746,6 +758,7 @@ async function destroySessionState(session: string): Promise<RpcResponse> {
       profileDestroyed: !externalProfilePreserved,
       externalProfilePreserved,
       sessionScope: scope,
+      ...(traceEvent ? { traceEvent } : {}),
     });
   } finally {
     await rm(paths.startup, { force: true });
@@ -769,6 +782,9 @@ async function requestWithoutStarting(
           profileMode,
         }),
       }
+      : method === "export_trace"
+      ? await readPersistedCliTrace(pathsForSession(session).artifacts)
+        ?? createTraceRecorder({ identity: { sessionId: session } }).snapshot()
       : { session, closed: false, active: false });
   }
   return await requestDaemon(endpoint, method);
@@ -784,10 +800,10 @@ async function runDaemon(
   const runtime = await createHarnessCliRuntime(session, paths.artifacts, browser, cdpEndpoint, profileMode);
   let rpc: RpcServer | undefined;
   let closing = false;
-  const close = async () => {
+  const close = async (reason: "close" | "destroy" | "idle" = "close") => {
     if (closing) return;
     closing = true;
-    await runtime.close();
+    await runtime.close(reason);
     await rpc?.close();
   };
   rpc = await startRpcServer(session, async (request) => handleDaemonRequest(request.id, request.method, request.params, runtime, close));
@@ -799,7 +815,7 @@ async function runDaemon(
     runtime.setExpiresAt(profileMode === "disposable" && !cdpEndpoint
       ? new Date(Date.now() + idleTimeout).toISOString()
       : null);
-    idleTimer = setTimeout(() => void close(), idleTimeout);
+    idleTimer = setTimeout(() => void close("idle"), idleTimeout);
     idleTimer.unref();
   };
   rpc.server.on("connection", armIdleTimer);
@@ -846,6 +862,7 @@ async function handleDaemonRequest(
 ): Promise<RpcResponse> {
   if (method === "ping") return okResponse(id, { pid: process.pid });
   if (method === "status") return okResponse(id, { active: true, ...await runtime.status() });
+  if (method === "export_trace") return okResponse(id, runtime.trace());
   if (method === "list_tools") return okResponse(id, runtime.listTools());
   if (method === "describe_tool") {
     try {
@@ -878,11 +895,13 @@ async function handleDaemonRequest(
   }
   if (method === "shutdown") {
     const status: Record<string, unknown> = await runtime.status().catch(() => ({}));
-    await runtime.close();
+    const reason = params?.reason === "destroy" ? "destroy" : "close";
+    const traceEvent = await runtime.close(reason);
     setTimeout(() => void close(), 10).unref();
     return okResponse(id, {
       session: typeof status.session === "string" ? status.session : undefined,
       closed: true,
+      ...(traceEvent ? { traceEvent } : {}),
     });
   }
   return errorResponse(id, "unknown_method", `Unknown daemon method "${method}".`);
@@ -912,6 +931,14 @@ function printResponse(response: RpcResponse, json: boolean) {
     process.stdout.write(`${boundary}${result.content}\n`);
   }
   else process.stdout.write(`${JSON.stringify(response.result, null, 2)}\n`);
+}
+
+function printTraceResponse(response: RpcResponse) {
+  if (!response.ok) {
+    process.stderr.write(`${response.error?.message ?? "Unknown CLI error"}\n`);
+    return;
+  }
+  process.stdout.write(`${formatTraceTimeline(response.result as HarnessTraceExport)}\n`);
 }
 
 function formatContentBoundary(boundary: ToolContentBoundary) {

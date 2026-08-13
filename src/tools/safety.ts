@@ -201,7 +201,7 @@ export async function enforceBrowserSafety(options: {
     url: boundedApprovalUrl(boundary.url),
     testId: options.testId,
   });
-  if (decision?.approved === true) return;
+  if (decision?.approved === true) return { category };
 
   const reason = decision && typeof decision.reason === "string" && decision.reason.trim()
     ? ` ${decision.reason.trim()}`
