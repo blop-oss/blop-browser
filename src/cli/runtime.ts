@@ -1,15 +1,20 @@
 import "../session/bun-ws-compat.js";
-import { access, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { access, mkdir, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
 import { createBrowserTools } from "../create-tools.js";
+import {
+  getBrowserSessionScope,
+  type BrowserProfileMode,
+  type BrowserSessionScope,
+} from "../session/scope.js";
 import type { HarnessAction, HarnessBrowserLog } from "../types.js";
 import type { FinishState, NativeToolBridge } from "../tools/types.js";
 
 export type BrowserName = "chromium" | "camoufox";
 
 type LaunchedBrowser = {
-  browser: Browser;
+  browser?: Browser;
   context?: BrowserContext;
   page?: Page;
   pages?: Page[];
@@ -22,6 +27,7 @@ export type HarnessCliRuntime = {
   listTools: () => Array<{ name: string; description: string }>;
   describeTool: (name: string) => Omit<NativeToolBridge, "execute">;
   status: () => Promise<Record<string, unknown>>;
+  setExpiresAt: (expiresAt: string | null) => void;
   close: () => Promise<void>;
 };
 
@@ -30,17 +36,33 @@ export async function createHarnessCliRuntime(
   artifactDirectory: string,
   browserName: BrowserName = "chromium",
   cdpEndpoint?: string,
+  profileMode: BrowserProfileMode = "persistent",
 ): Promise<HarnessCliRuntime> {
-  await mkdir(artifactDirectory, { recursive: true });
+  const sessionScope = getBrowserSessionScope(session, {
+    runtimeDirectory: dirname(artifactDirectory),
+    existingProfile: Boolean(cdpEndpoint),
+    profileMode,
+  });
+  await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
   const headless = process.env.BLOP_BROWSER_HEADLESS !== "0";
   let launched: LaunchedBrowser;
   if (cdpEndpoint) launched = await connectChromeOverCdp(cdpEndpoint);
-  else if (browserName === "camoufox") launched = await launchCamoufox(headless);
-  else launched = await launchChromium(headless);
+  else {
+    await Promise.all([
+      mkdir(sessionScope.profileDirectory!, { recursive: true, mode: 0o700 }),
+      mkdir(sessionScope.downloadsDirectory!, { recursive: true, mode: 0o700 }),
+    ]);
+    if (browserName === "camoufox") launched = await launchCamoufox(headless, sessionScope);
+    else launched = await launchChromium(headless, sessionScope);
+  }
   const browser = launched.browser;
   const contextOptions: BrowserContextOptions = { bypassCSP: true };
   if (browserName === "camoufox") contextOptions.viewport = null;
-  const context = launched.context ?? await browser.newContext(contextOptions);
+  let context = launched.context;
+  if (!context) {
+    if (!browser) throw new Error("Browser launch did not provide a context or browser.");
+    context = await browser.newContext(contextOptions);
+  }
   const page = launched.page ?? await context.newPage();
   return createRuntimeFromBrowser(
     session,
@@ -54,12 +76,22 @@ export async function createHarnessCliRuntime(
     cdpEndpoint ? "cdp" : "launch",
     cdpEndpoint,
     launched.closeLauncher,
+    sessionScope,
   );
 }
 
-async function launchChromium(headless: boolean): Promise<LaunchedBrowser> {
+async function launchChromium(headless: boolean, scope: BrowserSessionScope): Promise<LaunchedBrowser> {
   const executablePath = await resolveBrowserExecutable();
-  return { browser: await chromium.launch({ headless, ...(executablePath ? { executablePath } : {}) }) };
+  const context = await chromium.launchPersistentContext(scope.profileDirectory!, {
+    headless,
+    bypassCSP: true,
+    acceptDownloads: true,
+    downloadsPath: scope.downloadsDirectory!,
+    ...(executablePath ? { executablePath } : {}),
+  });
+  const pages = context.pages();
+  const page = pages.at(-1) ?? await context.newPage();
+  return { browser: context.browser() ?? undefined, context, page, pages: pages.length > 0 ? pages : [page] };
 }
 
 async function connectChromeOverCdp(endpoint: string): Promise<LaunchedBrowser> {
@@ -77,19 +109,25 @@ async function connectChromeOverCdp(endpoint: string): Promise<LaunchedBrowser> 
   };
 }
 
-async function launchCamoufox(headless: boolean): Promise<LaunchedBrowser> {
+async function launchCamoufox(headless: boolean, scope: BrowserSessionScope): Promise<LaunchedBrowser> {
   if (process.versions.bun) {
     throw new Error("Camoufox must run under Node.js. Start it through the blop-browser CLI.");
   }
   const { Camoufox } = await import("camoufox-js");
   const executablePath = process.env.BLOP_BROWSER_CAMOUFOX_EXECUTABLE_PATH;
   try {
-    return {
-      browser: await Camoufox({
-        headless,
-        ...(executablePath ? { executable_path: executablePath } : {}),
-      }) as Browser,
-    };
+    const context = await Camoufox({
+      headless,
+      user_data_dir: scope.profileDirectory!,
+      downloadsPath: scope.downloadsDirectory!,
+      acceptDownloads: true,
+      bypassCSP: true,
+      viewport: null,
+      ...(executablePath ? { executable_path: executablePath } : {}),
+    });
+    const pages = context.pages();
+    const page = pages.at(-1) ?? await context.newPage();
+    return { browser: context.browser() ?? undefined, context, page, pages: pages.length > 0 ? pages : [page] };
   } catch (error) {
     if (messageOf(error).match(/not (?:installed|found)|fetch|download/i)) {
       throw new Error(
@@ -157,7 +195,7 @@ async function createRuntimeFromBrowser(
   session: string,
   artifactDirectory: string,
   browserName: BrowserName,
-  browser: Browser,
+  browser: Browser | undefined,
   context: BrowserContext,
   page: Page,
   initialPages: Page[],
@@ -165,11 +203,13 @@ async function createRuntimeFromBrowser(
   connection: "launch" | "cdp",
   cdpEndpoint?: string,
   closeLauncher?: () => Promise<void>,
+  sessionScope?: BrowserSessionScope,
 ): Promise<HarnessCliRuntime> {
   const actions: HarnessAction[] = [];
   const browserLogs: HarnessBrowserLog[] = [];
   const finishState: FinishState = { status: null, reason: null };
   const pages: Page[] = [];
+  let currentSessionScope = sessionScope;
   let closed = false;
   const safetyMode = process.env.BLOP_BROWSER_READ_ONLY === "1" ? "read-only" : "read-write";
 
@@ -243,14 +283,25 @@ async function createRuntimeFromBrowser(
       actions: actions.length,
       finishState,
       artifactDirectory,
+      sessionScope: currentSessionScope ? { ...currentSessionScope } : undefined,
       safetyMode,
     }),
+    setExpiresAt: (expiresAt) => {
+      if (currentSessionScope) currentSessionScope = { ...currentSessionScope, expiresAt };
+    },
     close: async () => {
       if (closed) return;
       closed = true;
       if (ownsContext) await context.close().catch(() => undefined);
-      await browser.close().catch(() => undefined);
+      await browser?.close().catch(() => undefined);
       await closeLauncher?.().catch(() => undefined);
+      if (currentSessionScope?.mode === "disposable") {
+        await Promise.all([
+          rm(currentSessionScope.profileDirectory!, { recursive: true, force: true }),
+          rm(currentSessionScope.downloadsDirectory!, { recursive: true, force: true }),
+          rm(currentSessionScope.artifactDirectory, { recursive: true, force: true }),
+        ]);
+      }
     },
   };
 }

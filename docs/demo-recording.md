@@ -59,6 +59,10 @@ blop-browser config \
 blop-browser --session launch-demo doctor --json
 ```
 
+The saved endpoint identifies Chrome but doesn't authorize access to its
+profile. Include `--attach-existing` on the first command that starts the
+Blop Browser attachment.
+
 ## Start the screencast dashboard
 
 The included script attaches a second CDP client to the active application tab,
@@ -88,7 +92,8 @@ recording.
 3. In the terminal, navigate and take a semantic snapshot:
 
    ```bash
-   blop-browser --session launch-demo open "$BLOP_DEMO_URL"
+   blop-browser --session launch-demo --attach-existing \
+     open "$BLOP_DEMO_URL"
    blop-browser --session launch-demo snapshot
    ```
 

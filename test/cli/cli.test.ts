@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,6 +61,13 @@ describe("blop-browser CLI", () => {
       json: true,
       interactive: false,
     })).toBe(false);
+    expect(shouldRunFirstConfig({
+      argv: ["--session", "review", "destroy"],
+      command: "destroy",
+      configured: false,
+      json: false,
+      interactive: true,
+    })).toBe(false);
   });
 
   test("keeps one browser session across separate CLI invocations", async () => {
@@ -100,6 +107,21 @@ describe("blop-browser CLI", () => {
       trust: "untrusted",
       url: expect.stringContaining(server.url),
     });
+
+    const status = await runCli(["--session", session, "status", "--json"], runtimeDir);
+    expect(status.result).toEqual(expect.objectContaining({
+      active: true,
+      sessionScope: {
+        mode: "persistent",
+        storageScope: "session",
+        profileDirectory: join(runtimeDir, `${session}-profile`),
+        downloadsDirectory: join(runtimeDir, `${session}-downloads`),
+        artifactDirectory: join(runtimeDir, `${session}-artifacts`),
+        owner: currentOwner(),
+        expiresAt: null,
+        destroyable: true,
+      },
+    }));
   }, 30_000);
 
   test("discovers tool names and schemas without an MCP client", async () => {
@@ -125,6 +147,134 @@ describe("blop-browser CLI", () => {
       name: "browser_click",
       parameters: expect.objectContaining({ type: "object" }),
     }));
+  }, 30_000);
+
+  test("uses separate persistent storage for parallel named sessions", async () => {
+    server = await startFixtureServer([{
+      path: "/",
+      body: `<main><h1 id="owner"></h1></main><script>
+        const requested = new URLSearchParams(location.search).get("owner");
+        if (requested) localStorage.setItem("owner", requested);
+        document.querySelector("#owner").textContent = localStorage.getItem("owner") || "empty";
+      </script>`,
+    }]);
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-isolation-"));
+    const sessionA = `isolation-a-${process.pid}`;
+    const sessionB = `isolation-b-${process.pid}`;
+
+    try {
+      const [openedA, openedB] = await Promise.all([
+        runCli(["--session", sessionA, "open", `${server.url}?owner=alpha`, "--json"], runtimeDir),
+        runCli(["--session", sessionB, "open", server.url, "--json"], runtimeDir),
+      ]);
+      expect(openedA.ok).toBe(true);
+      expect(openedB.ok).toBe(true);
+
+      const [snapshotA, snapshotB, statusA, statusB] = await Promise.all([
+        runCli(["--session", sessionA, "snapshot", "--json"], runtimeDir),
+        runCli(["--session", sessionB, "snapshot", "--json"], runtimeDir),
+        runCli(["--session", sessionA, "status", "--json"], runtimeDir),
+        runCli(["--session", sessionB, "status", "--json"], runtimeDir),
+      ]);
+      expect(snapshotA.result?.content).toContain("alpha");
+      expect(snapshotB.result?.content).toContain("empty");
+      expect(statusA.result?.sessionScope.profileDirectory).not.toBe(statusB.result?.sessionScope.profileDirectory);
+      expect(statusA.result?.sessionScope.downloadsDirectory).not.toBe(statusB.result?.sessionScope.downloadsDirectory);
+    } finally {
+      await Promise.all([
+        runCli(["--session", sessionA, "close", "--json"], runtimeDir).catch(() => undefined),
+        runCli(["--session", sessionB, "close", "--json"], runtimeDir).catch(() => undefined),
+      ]);
+    }
+  }, 30_000);
+
+  test("persists managed state across close and destroys it immediately on request", async () => {
+    server = await startFixtureServer([{
+      path: "/",
+      body: `<main><h1 id="owner"></h1></main><script>
+        const requested = new URLSearchParams(location.search).get("owner");
+        if (requested) localStorage.setItem("owner", requested);
+        document.querySelector("#owner").textContent = localStorage.getItem("owner") || "empty";
+      </script>`,
+    }]);
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-persistence-"));
+    session = `persistence-${process.pid}`;
+    const profileDirectory = join(runtimeDir, `${session}-profile`);
+    const downloadsDirectory = join(runtimeDir, `${session}-downloads`);
+    const artifactDirectory = join(runtimeDir, `${session}-artifacts`);
+
+    await runCli(["--session", session, "open", `${server.url}?owner=persisted`, "--json"], runtimeDir);
+    await runCli(["--session", session, "close", "--json"], runtimeDir);
+    expect(await pathExists(profileDirectory)).toBe(true);
+    expect(await pathExists(downloadsDirectory)).toBe(true);
+
+    await runCli(["--session", session, "open", server.url, "--json"], runtimeDir);
+    const restored = await runCli(["--session", session, "snapshot", "--json"], runtimeDir);
+    expect(restored.result?.content).toContain("persisted");
+
+    const destroyed = await runCli(["--session", session, "destroy", "--json"], runtimeDir);
+    expect(destroyed.result).toEqual(expect.objectContaining({
+      session,
+      destroyed: true,
+      wasActive: true,
+      profileDestroyed: true,
+      externalProfilePreserved: false,
+    }));
+    expect(await pathExists(profileDirectory)).toBe(false);
+    expect(await pathExists(downloadsDirectory)).toBe(false);
+    expect(await pathExists(artifactDirectory)).toBe(false);
+  }, 30_000);
+
+  test("removes disposable profile state on close and reports its expiry", async () => {
+    server = await startFixtureServer([{
+      path: "/",
+      body: `<main><h1 id="owner"></h1></main><script>
+        const requested = new URLSearchParams(location.search).get("owner");
+        if (requested) localStorage.setItem("owner", requested);
+        document.querySelector("#owner").textContent = localStorage.getItem("owner") || "empty";
+      </script>`,
+    }]);
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-disposable-"));
+    session = `disposable-${process.pid}`;
+    const profileDirectory = join(runtimeDir, `${session}-profile`);
+    const downloadsDirectory = join(runtimeDir, `${session}-downloads`);
+    const artifactDirectory = join(runtimeDir, `${session}-artifacts`);
+
+    await runCli([
+      "--session",
+      session,
+      "--profile",
+      "disposable",
+      "open",
+      `${server.url}?owner=temporary`,
+      "--json",
+    ], runtimeDir);
+    const status = await runCli(["--session", session, "status", "--json"], runtimeDir);
+    expect(status.result?.sessionScope).toEqual(expect.objectContaining({
+      mode: "disposable",
+      storageScope: "session",
+      profileDirectory,
+      downloadsDirectory,
+      expiresAt: expect.any(String),
+      destroyable: true,
+    }));
+
+    await runCli(["--session", session, "close", "--json"], runtimeDir);
+    expect(await pathExists(profileDirectory)).toBe(false);
+    expect(await pathExists(downloadsDirectory)).toBe(false);
+    expect(await pathExists(artifactDirectory)).toBe(false);
+
+    await runCli([
+      "--session",
+      session,
+      "--profile",
+      "disposable",
+      "open",
+      server.url,
+      "--json",
+    ], runtimeDir);
+    const fresh = await runCli(["--session", session, "snapshot", "--json"], runtimeDir);
+    expect(fresh.result?.content).toContain("empty");
   }, 30_000);
 
   test("serializes concurrent startup for the same named session", async () => {
@@ -447,7 +597,8 @@ describe("blop-browser CLI", () => {
       { path: "/", body: "<main><h1>External Chrome</h1></main>" },
     ]);
     runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-cdp-"));
-    cdpChrome = await startCdpChrome(join(runtimeDir, "chrome-profile"));
+    const externalProfileDirectory = join(runtimeDir, "chrome-profile");
+    cdpChrome = await startCdpChrome(externalProfileDirectory);
     session = `cdp-${process.pid}`;
     const cdpEnvironment = { BLOP_BROWSER_HEADLESS: "__UNSET__" };
     const setupBrowser = await chromium.connectOverCDP(cdpChrome.endpoint);
@@ -467,9 +618,18 @@ describe("blop-browser CLI", () => {
       cdpEndpoint: cdpChrome.endpoint,
     }));
 
+    await expect(runCli([
+      "--session",
+      session,
+      "open",
+      server.url,
+      "--json",
+    ], runtimeDir, cdpEnvironment)).rejects.toThrow("--attach-existing");
+
     const navigation = await runCli([
       "--session",
       session,
+      "--attach-existing",
       "open",
       server.url,
       "--json",
@@ -495,6 +655,16 @@ describe("blop-browser CLI", () => {
       browser: "chromium",
       connection: "cdp",
       url: new URL(server.url).href,
+      sessionScope: {
+        mode: "existing-profile",
+        storageScope: "external-browser",
+        profileDirectory: null,
+        downloadsDirectory: null,
+        artifactDirectory: join(runtimeDir, `${session}-artifacts`),
+        owner: currentOwner(),
+        expiresAt: null,
+        destroyable: false,
+      },
     }));
 
     await expect(runCli([
@@ -506,8 +676,13 @@ describe("blop-browser CLI", () => {
       "--json",
     ], runtimeDir, cdpEnvironment)).rejects.toThrow("already uses chromium via cdp");
 
-    const closed = await runCli(["--session", session, "close", "--json"], runtimeDir, cdpEnvironment);
-    expect(closed.ok).toBe(true);
+    const destroyed = await runCli(["--session", session, "destroy", "--json"], runtimeDir, cdpEnvironment);
+    expect(destroyed.result).toEqual(expect.objectContaining({
+      destroyed: true,
+      profileDestroyed: false,
+      externalProfilePreserved: true,
+    }));
+    expect(await pathExists(externalProfileDirectory)).toBe(true);
     expect(cdpChrome.process.exitCode).toBeNull();
   }, 30_000);
 });
@@ -609,4 +784,17 @@ async function runCliResult(
     exitCode,
     response: JSON.parse(stdout) as CliResult,
   };
+}
+
+function currentOwner() {
+  return typeof process.getuid === "function" ? `uid:${process.getuid()}` : `user:${process.env.USER ?? "unknown"}`;
+}
+
+async function pathExists(path: string) {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
