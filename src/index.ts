@@ -39,4 +39,14 @@ export {
   type CamoufoxContainerSession,
 } from "./session/camoufox-container.js";
 
+export {
+  browserSessionDirectories,
+  defaultBrowserRuntimeDirectory,
+  getBrowserSessionScope,
+  validateBrowserSessionName,
+  type BrowserProfileMode,
+  type BrowserSessionDirectories,
+  type BrowserSessionScope,
+} from "./session/scope.js";
+
 export { locateTarget, locateAllTargets, selectorFor, type BrowserTarget, targetParameterSchema } from "./tools/locators.js";

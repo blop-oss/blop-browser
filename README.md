@@ -31,7 +31,7 @@ Blop Browser differs from general-purpose browser automation by combining:
 
 - Controlled, bounded browser tools instead of arbitrary page-script or CDP
   execution.
-- Persistent, isolated sessions selected with `--session`.
+- Persistent or disposable isolated sessions selected with `--session`.
 - Existing Chrome and authenticated profile reuse over CDP.
 - Optional Camoufox sessions when a Firefox-based anti-detect browser is needed.
 - A public TypeScript API for embedding the same tools in your own agent host.
@@ -98,7 +98,11 @@ Install the Blop Browser skill and set up the blop-browser CLI:
    - Existing Chrome over CDP: blop-browser config --mode chrome-cdp --cdp-endpoint http://127.0.0.1:9222
    - Camoufox headless: blop-browser config --mode camoufox-headless
    - Camoufox visible: blop-browser config --mode camoufox-headed
-5. Confirm the setup with: blop-browser open https://example.com && blop-browser snapshot
+5. If the mode is managed Chromium or Camoufox, confirm the setup with:
+   blop-browser open https://example.com && blop-browser snapshot
+6. If the mode is chrome-cdp, get my explicit approval to access that Chrome
+   profile, then confirm with:
+   blop-browser --attach-existing open https://example.com && blop-browser snapshot
 ```
 
 </details>
@@ -118,9 +122,11 @@ blop-browser config --mode camoufox-headless
 blop-browser config --mode camoufox-headed
 ```
 
-An explicit `--browser`, `--cdp-endpoint`, `--headless`, or `--headed` option
-overrides the saved default for a new session. Environment variables continue
-to override saved configuration.
+An explicit `--browser`, `--cdp-endpoint`, `--profile`, `--headless`, or
+`--headed` option overrides the saved default for a new session. Environment
+variables continue to override saved configuration. A CDP endpoint selects the
+target, but it doesn't authorize profile access: the command that starts the
+attachment must also include `--attach-existing`.
 
 ## Use the CLI
 
@@ -134,6 +140,36 @@ blop-browser --session checkout click e6
 blop-browser --session checkout screenshot checkout --full-page
 blop-browser --session checkout close
 ```
+
+Managed sessions use a dedicated persistent profile and downloads directory for
+each session name. `close` stops the browser but keeps that state. Inspect the
+complete scope before handling authenticated data:
+
+```bash
+blop-browser --session checkout status --json
+```
+
+The `sessionScope` result reports the profile mode, storage scope, profile,
+downloads and artifact directories, local owner, expiry, and whether the
+profile is managed by Blop Browser. Use a disposable profile when state must
+expire with the daemon:
+
+```bash
+blop-browser --session review --profile disposable open https://example.com
+blop-browser --session review close
+```
+
+Disposable profile, download, and artifact state is removed on explicit close
+or idle shutdown. To immediately remove a persistent session's profile,
+downloads, artifacts, and daemon metadata, run:
+
+```bash
+blop-browser --session checkout destroy
+```
+
+`destroy` safely closes an active managed session first. For an attached Chrome
+session, it disconnects and removes only Blop Browser's managed artifacts; it
+never deletes the external Chrome profile.
 
 Use `--json` for a stable machine-readable response envelope:
 
@@ -168,6 +204,7 @@ google-chrome \
   --user-data-dir=/tmp/blop-chrome
 
 blop-browser --session chrome \
+  --attach-existing \
   --cdp-endpoint http://127.0.0.1:9222 snapshot
 blop-browser --session chrome open https://example.com
 blop-browser --session chrome close
@@ -178,8 +215,10 @@ tab. Later commands reuse that connection without repeating `--cdp-endpoint`.
 Closing Blop Browser disconnects from Chrome without closing Chrome itself.
 
 Keep the debugging port on localhost. A CDP endpoint grants full control over
-that Chrome profile. You can set `BLOP_BROWSER_CDP_ENDPOINT` instead of passing
-the flag.
+that Chrome profile. Never infer permission from a saved configuration or
+environment variable. You can set `BLOP_BROWSER_CDP_ENDPOINT` instead of
+passing the endpoint, but the first command must still include
+`--attach-existing`.
 
 ## Use Camoufox
 
@@ -209,9 +248,14 @@ npm install @blopai/browser-harness
 ```ts
 import { chromium } from "playwright";
 import {
+  getBrowserSessionScope,
   createBrowserTools,
   type HarnessAction,
 } from "@blopai/browser-harness";
+
+const sessionScope = getBrowserSessionScope("demo", {
+  runtimeDirectory: ".browser-runtime",
+});
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
@@ -270,23 +314,24 @@ not this repository's retained npm package name.
 These environment variables configure sessions and browser infrastructure.
 Explicit CLI flags take precedence where both forms exist.
 
-| Variable                                | Default                          | Purpose                               |
-| --------------------------------------- | -------------------------------- | ------------------------------------- |
-| `BLOP_BROWSER_SESSION`                  | `default`                        | Session name                          |
-| `BLOP_BROWSER`                          | `chromium`                       | `chromium` or `camoufox`              |
-| `BLOP_BROWSER_HEADLESS`                 | `1`                              | Set to `0` for a visible browser      |
-| `BLOP_BROWSER_CDP_ENDPOINT`             | Unset                            | Existing Chrome CDP URL               |
-| `BLOP_BROWSER_CONFIG_PATH`              | Platform config directory        | Saved installer choice                |
-| `BLOP_BROWSER_EXECUTABLE_PATH`          | Auto-detect                      | Chrome or Chromium path               |
-| `BLOP_BROWSER_CAMOUFOX_EXECUTABLE_PATH` | Auto-detect                      | Camoufox path                         |
-| `BLOP_BROWSER_IDLE_TIMEOUT_MS`          | `1800000`                        | Daemon idle timeout                   |
-| `BLOP_BROWSER_RUNTIME_DIR`              | OS temporary directory           | Private session state                 |
-| `BLOP_PLAYWRIGHT_CONTAINER`             | `blop-playwright`                | Warm Playwright server container name |
-| `BLOP_PLAYWRIGHT_IMAGE`                 | Playwright-version-derived image | Playwright image override             |
-| `BLOP_PLAYWRIGHT_NETWORK`               | Unset                            | Shared Docker network                 |
-| `BLOP_CAMOUFOX_CONTAINER`               | `blop-camoufox`                  | Warm Camoufox server container name   |
-| `BLOP_CAMOUFOX_IMAGE`                   | Version-derived local image      | Camoufox image override               |
-| `BLOP_CAMOUFOX_NETWORK`                 | `BLOP_PLAYWRIGHT_NETWORK`        | Camoufox Docker network               |
+| Variable                                | Default                          | Purpose                                               |
+| --------------------------------------- | -------------------------------- | ----------------------------------------------------- |
+| `BLOP_BROWSER_SESSION`                  | `default`                        | Session name                                          |
+| `BLOP_BROWSER`                          | `chromium`                       | `chromium` or `camoufox`                              |
+| `BLOP_BROWSER_HEADLESS`                 | `1`                              | Set to `0` for a visible browser                      |
+| `BLOP_BROWSER_CDP_ENDPOINT`             | Unset                            | Existing Chrome CDP URL; doesn't authorize attachment |
+| `BLOP_BROWSER_PROFILE`                  | `persistent`                     | `persistent` or `disposable` managed profile mode     |
+| `BLOP_BROWSER_CONFIG_PATH`              | Platform config directory        | Saved installer choice                                |
+| `BLOP_BROWSER_EXECUTABLE_PATH`          | Auto-detect                      | Chrome or Chromium path                               |
+| `BLOP_BROWSER_CAMOUFOX_EXECUTABLE_PATH` | Auto-detect                      | Camoufox path                                         |
+| `BLOP_BROWSER_IDLE_TIMEOUT_MS`          | `1800000`                        | Daemon idle timeout                                   |
+| `BLOP_BROWSER_RUNTIME_DIR`              | OS temporary directory           | Private session state                                 |
+| `BLOP_PLAYWRIGHT_CONTAINER`             | `blop-playwright`                | Warm Playwright server container name                 |
+| `BLOP_PLAYWRIGHT_IMAGE`                 | Playwright-version-derived image | Playwright image override                             |
+| `BLOP_PLAYWRIGHT_NETWORK`               | Unset                            | Shared Docker network                                 |
+| `BLOP_CAMOUFOX_CONTAINER`               | `blop-camoufox`                  | Warm Camoufox server container name                   |
+| `BLOP_CAMOUFOX_IMAGE`                   | Version-derived local image      | Camoufox image override                               |
+| `BLOP_CAMOUFOX_NETWORK`                 | `BLOP_PLAYWRIGHT_NETWORK`        | Camoufox Docker network                               |
 
 ## Benchmarks
 

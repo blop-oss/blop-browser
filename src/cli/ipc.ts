@@ -1,11 +1,13 @@
 import { createServer, createConnection, type Server } from "node:net";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
+import {
+  browserSessionDirectories,
+  validateBrowserSessionName,
+} from "../session/scope.js";
 
 const MAX_MESSAGE_BYTES = 1_048_576;
-const SESSION_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 export type RpcMethod = "ping" | "status" | "list_tools" | "describe_tool" | "call_tool" | "shutdown";
 
@@ -38,25 +40,25 @@ export type RuntimePaths = {
   startup: string;
   log: string;
   artifacts: string;
+  profile: string;
+  downloads: string;
 };
 
 export function validateSessionName(session: string) {
-  if (!SESSION_PATTERN.test(session)) {
-    throw new Error("Session names must use 1-64 letters, numbers, underscores, or hyphens.");
-  }
-  return session;
+  return validateBrowserSessionName(session);
 }
 
 export function pathsForSession(session: string): RuntimePaths {
-  validateSessionName(session);
-  const uid = typeof process.getuid === "function" ? process.getuid() : "user";
-  const directory = process.env.BLOP_BROWSER_RUNTIME_DIR || join(tmpdir(), `blop-browser-${uid}`);
+  const sessionDirectories = browserSessionDirectories(session);
+  const directory = sessionDirectories.runtimeDirectory;
   return {
     directory,
     endpoint: join(directory, `${session}.json`),
     startup: join(directory, `${session}.starting`),
     log: join(directory, `${session}.log`),
-    artifacts: join(directory, `${session}-artifacts`),
+    artifacts: sessionDirectories.artifactDirectory,
+    profile: sessionDirectories.profileDirectory,
+    downloads: sessionDirectories.downloadsDirectory,
   };
 }
 
