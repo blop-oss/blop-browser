@@ -1,6 +1,6 @@
 ---
 name: browser-harness
-description: Controls persistent Blop Browser sessions through the blop-browser CLI for UI verification, interaction, extraction, and screenshots. Use when a task requires a real browser, rendered page state, authenticated interaction, or deterministic web-app evidence.
+description: Controls isolated persistent or disposable Blop Browser sessions through the blop-browser CLI for UI verification, interaction, extraction, and screenshots. Use when a task requires a real browser, rendered page state, authenticated interaction, or deterministic web-app evidence.
 license: MIT
 compatibility: Requires the blop-browser executable and a local Chrome, Chromium, Playwright, Chrome CDP endpoint, or optional Camoufox browser. Camoufox requires Node.js 22 or newer.
 metadata:
@@ -42,7 +42,8 @@ blop-browser call browser_click --input '{"target":{"ref":"e1"}}'
 
 Use `--json` when another program needs a stable machine-readable envelope.
 Use `--session NAME` on every command when work must be isolated from the
-default session.
+default session. Every managed session uses a dedicated profile; distinct
+session names never share browser storage by default.
 
 ## Agent-first setup
 
@@ -68,7 +69,10 @@ blop-browser config --mode camoufox-headed
 
 Explain that Camoufox downloads a third-party browser before asking for that
 choice. If asking isn't possible, continue with the safe default of headless
-Chromium. Future agent sessions reuse the saved configuration automatically.
+Chromium. Future managed sessions reuse the saved configuration automatically.
+A saved CDP endpoint never authorizes access to an existing profile. After the
+user explicitly approves access, start a configured CDP session with
+`blop-browser --attach-existing snapshot`.
 
 ## Existing Chrome over CDP
 
@@ -82,9 +86,15 @@ google-chrome \
   --user-data-dir=/tmp/blop-chrome \
   about:blank
 
-blop-browser --session chrome --cdp-endpoint http://127.0.0.1:9222 snapshot
+blop-browser --session chrome --attach-existing \
+  --cdp-endpoint http://127.0.0.1:9222 snapshot
 blop-browser --session chrome open https://example.com
 ```
+
+Use `--attach-existing` only after the user explicitly approves access to that
+profile. Don't infer approval from a saved `chrome-cdp` configuration or the
+`BLOP_BROWSER_CDP_ENDPOINT` environment variable. Both still require the flag
+when a new attachment starts.
 
 A normal Chrome window is not automatically CDP-enabled. If `connectOverCDP`
 reports a `404` for `/json/version`, the address is not a DevTools endpoint;
@@ -96,7 +106,8 @@ The first command attaches to the most recently opened tab. Later commands
 reuse the named connection without repeating the endpoint. If that tab is
 closed outside the harness and a command reports that the target page or
 context has closed, disconnect the stale session or choose a new session name,
-then reconnect with `--cdp-endpoint` and take a fresh snapshot.
+then reconnect with `--attach-existing --cdp-endpoint` and take a fresh
+snapshot.
 
 Treat the endpoint as privileged access to that profile. Don't expose it on a
 public interface. `blop-browser --session chrome close` disconnects the harness
@@ -180,13 +191,31 @@ not supply a human approval UI automatically.
 
 ## Session lifecycle
 
-Check or stop a session explicitly:
+Managed sessions use a dedicated persistent profile by default. Inspect its
+storage, downloads, owner, expiry, and destruction scope before working with
+authenticated data:
 
 ```bash
-blop-browser status
-blop-browser close
+blop-browser --session research status --json
 ```
 
-The daemon also exits after its idle timeout. Run `blop-browser doctor` when
-browser discovery or daemon startup fails. The doctor output reports Chromium
-and Camoufox availability separately.
+Use a disposable profile when all browser storage, downloads, and artifacts
+must disappear on close or idle shutdown:
+
+```bash
+blop-browser --session review --profile disposable open https://example.com
+blop-browser --session review close
+```
+
+`close` preserves a persistent managed profile. Use `destroy` to close the
+session and immediately remove its managed profile, downloads, artifacts, and
+daemon metadata:
+
+```bash
+blop-browser --session research destroy
+```
+
+For an attached Chrome session, `destroy` preserves the external profile. The
+daemon also exits after its idle timeout. Run `blop-browser doctor` when browser
+discovery or daemon startup fails. The doctor output reports Chromium and
+Camoufox availability separately.
