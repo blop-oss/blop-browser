@@ -3,6 +3,8 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
+import type { ToolContentBoundary } from "../types.js";
+import type { BrowserActionCategory } from "../tools/types.js";
 
 const MAX_MESSAGE_BYTES = 1_048_576;
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -20,7 +22,16 @@ export type RpcResponse = {
   id: string;
   ok: boolean;
   result?: unknown;
-  error?: { code: string; message: string };
+  error?: {
+    code: string;
+    message: string;
+    contentBoundary?: ToolContentBoundary;
+    policy?: {
+      code: "read_only" | "approval_denied";
+      toolName: string;
+      category: BrowserActionCategory;
+    };
+  };
 };
 
 export type DaemonEndpoint = {
@@ -219,6 +230,21 @@ export function okResponse(id: string, result: unknown): RpcResponse {
   return { id, ok: true, result };
 }
 
-export function errorResponse(id: string, code: string, message: string): RpcResponse {
-  return { id, ok: false, error: { code, message } };
+export function errorResponse(
+  id: string,
+  code: string,
+  message: string,
+  contentBoundary?: ToolContentBoundary,
+  policy?: NonNullable<RpcResponse["error"]>["policy"],
+): RpcResponse {
+  return {
+    id,
+    ok: false,
+    error: {
+      code,
+      message,
+      ...(contentBoundary ? { contentBoundary } : {}),
+      ...(policy ? { policy } : {}),
+    },
+  };
 }
