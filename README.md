@@ -136,6 +136,23 @@ variables continue to override saved configuration. A CDP endpoint selects the
 target, but it doesn't authorize profile access: the command that starts the
 attachment must also include `--attach-existing`.
 
+Choose the backend from the workflow, not from a promise of avoiding
+detection:
+
+- Use managed Chromium for deterministic testing of local fixtures, staging
+  environments, and applications you control.
+- Use a dedicated Chrome profile over CDP when an authorized workflow requires
+  its real Chrome state. Profile history, extensions, login state, and the
+  installed Chrome version make CDP runs less controlled as comparisons.
+- Use Camoufox only for authorized Firefox and fingerprint-compatibility
+  coverage. Its generated fingerprint can vary between otherwise identical
+  launches, and it doesn't guarantee anonymity or avoidance of site controls.
+
+The [local backend signal protocol](benchmarks/detection/README.md) records
+versions, launch constraints, bounded browser-observable signals, failures, and
+limitations across three fresh-profile repetitions. It isn't a detection score
+or a bot-protection bypass benchmark.
+
 ## Use the CLI
 
 Use a named session to isolate concurrent agents or workflows. Each command

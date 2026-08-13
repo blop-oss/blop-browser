@@ -2,6 +2,7 @@ node_modules/
 dist/
 .harness-screenshots/
 .blop-test-screenshots/
+benchmarks/detection/.results/
 *.log
 .env
 .DS_Store
