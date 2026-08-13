@@ -69,6 +69,19 @@ describe("positioning proof documentation", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("architectural contract proof boundary");
   });
+
+  test("rejects removal of the bounded harness trace contract", async () => {
+    const document = await mutatedDocument((source) =>
+      source.replace(
+        "bounded ordered harness action trace",
+        "standalone action count",
+      )
+    );
+    const result = await runChecker(document);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("bounded harness trace contract");
+  });
 });
 
 async function mutatedDocument(mutate: (source: string) => string) {

@@ -42,6 +42,19 @@ if (
 if (!source.includes("bun run demo:positioning")) {
   failures.push("Positioning proof must include the supported demo command.");
 }
+if (!source.includes("[action trace contract](action-traces.md#L1-L21)")) {
+  failures.push("Positioning proof must link to the action trace contract.");
+}
+if (!source.includes("bounded ordered harness action trace")) {
+  failures.push(
+    "Positioning proof must describe the bounded harness trace contract.",
+  );
+}
+if (!source.includes("not native Playwright tracing, video")) {
+  failures.push(
+    "Positioning proof must distinguish harness traces from native Playwright artifacts.",
+  );
+}
 
 const directSection = sectionAfter(
   source,
@@ -278,6 +291,9 @@ function validateRepositoryIntegration() {
       "package.json must expose the build-backed demo:positioning command.",
     );
   }
+  if (!manifest.files?.includes("scripts/demo-positioning-proof.mjs")) {
+    failures.push("The published package must include the positioning demo.");
+  }
 
   const workflow = readFile(joinRoot(".github", "workflows", "ci.yml"));
   for (const command of [
@@ -304,6 +320,8 @@ function validateRepositoryIntegration() {
     'network: "loopback-only"',
     'evidence: "architectural-contract"',
     'notEvidenceFor: ["task-success", "security", "performance"]',
+    'recordCheck(checks, "inspectable-action-trace"',
+    "MAX_PERSISTED_TRACE_BYTES",
   ]) {
     if (!demo.includes(marker))
       failures.push(`Demo is missing fail-closed marker: ${marker}`);

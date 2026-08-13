@@ -18,6 +18,7 @@
     "docker",
     "skills",
     "docs",
+    "scripts/demo-positioning-proof.mjs",
     "benchmarks/README.md",
     "benchmarks/result.schema.json",
     "benchmarks/mind2web/README.md",
