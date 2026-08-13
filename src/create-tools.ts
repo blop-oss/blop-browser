@@ -266,7 +266,7 @@ export async function createBrowserTools(
   }
 
   navigationPolicy = await installNavigationPolicyGuard(
-    options.page.context(),
+    typeof options.page.context === "function" ? options.page.context() : undefined,
     sessionPolicy.domains,
   );
 

@@ -585,6 +585,8 @@ describe("browser session policy", () => {
       nonChromiumContext as never,
       policy.domains,
     )).rejects.toThrow("requires a Chromium BrowserContext");
+    await expect(installNavigationPolicyGuard(undefined, policy.domains))
+      .rejects.toThrow("requires a Playwright BrowserContext");
   });
 });
 

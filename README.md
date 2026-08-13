@@ -366,13 +366,28 @@ BLOP_BROWSER_READ_ONLY=1 blop-browser --session research open https://example.co
 blop-browser --session research snapshot
 ```
 
-An embedding host can instead gate potentially mutating actions with its own
-approval workflow:
+### Enforce domain and action rules
+
+An embedding host can freeze a static policy into each browser context. The
+policy can combine top-level origin rules with `allow`, `deny`, or `ask`
+decisions for harness-defined action classes:
 
 ```ts
 const tools = await createBrowserTools({
   // ...the page, artifact, action, and finish-state options above
   safety: {
+    domains: {
+      allow: ["https://app.example.com", "https://*.assets.example.com"],
+      deny: ["https://admin.assets.example.com"],
+    },
+    actions: {
+      navigation: "allow",
+      pointer: "ask",
+      keyboard: "allow",
+      form: "ask",
+      "file-upload": "deny",
+      "page-lifecycle": "deny",
+    },
     approvalPolicy: async (request) => {
       const approved = await approvalUi.confirm({
         tool: request.toolName,
@@ -386,23 +401,73 @@ const tools = await createBrowserTools({
 });
 ```
 
-The callback runs for every statically classified interaction, including
-`browser_upload_file`, before any locator or input dispatch. Its URL has query
-and fragment data removed, and text, values, credentials, and file paths in
-`request.input` are replaced by bounded redaction summaries. Treat the
-remaining target labels as untrusted caller input; page wording never changes
-the action category. Returning no decision or `{ approved: false }` denies the
-action.
+Domain entries must be HTTP or HTTPS origins without paths, credentials,
+queries, or fragments. A nonempty `allow` list denies nonmatching origins, and
+`deny` takes precedence. `https://*.example.com` matches any subdomain depth,
+but not `example.com`, `evil-example.com`, another scheme, or a nondefault
+port. Add an explicit port to a rule when you need one. Hostnames are matched
+as normalized ASCII names with DNS label boundaries.
+
+For an existing page, the gate checks a `browser_goto` destination before its
+request and checks every top-level redirect hop. The same top-level gate
+applies to navigation caused by clicks, forms, or page scripts. While domain
+rules are active, the harness rejects every new-page or popup document before
+its first request, even when its requested origin is allowed. Chromium exposes
+that request before it exposes a page that can cover later redirects, so this
+fail-closed rule prevents an allowed popup from redirecting outside policy.
+
+A domain policy is immutable for the lifetime of its `BrowserContext`. Tool
+sets that share a context must use the same rules, or must all omit rules;
+mixing policies fails setup. Nonempty domain rules currently require Chromium.
+Factory setup fails on Firefox, Camoufox, or a context whose backend can't
+enforce every top-level redirect hop. Existing host-owned context routes remain
+in the route chain.
+
+Action classes describe dispatched tool commands, not the meaning of a web
+page:
+
+- `navigation` covers `browser_goto`, `browser_reload`, `browser_go_back`, and
+  `browser_go_forward`.
+- `pointer` covers clicks, hover, and drag commands.
+- `keyboard` covers type, press, tab, focus, blur, and clear commands.
+- `form` covers check, uncheck, and select-option commands.
+- `file-upload` covers `browser_upload_file`.
+- `page-lifecycle` currently covers `browser_close_page`.
+
+Viewport changes, page selection, observations, and evidence tools stay
+outside the interaction gate. A click that submits a form remains `pointer`,
+and Enter remains `keyboard`; the harness does not guess that either command
+is a submission, purchase, or message. Navigation caused by such a command
+does not trigger a second `navigation` approval, because its destination isn't
+known before dispatch. Domain rules still check that top-level destination.
+
+The callback runs only for a category whose decision is `ask`. If you supply
+`approvalPolicy` without explicit action decisions, existing non-navigation
+interactions default to `ask`; navigation defaults to `allow` unless you
+configure it. Callback URLs omit query and fragment values. Text, values,
+credentials, and file paths in `request.input` become bounded redaction
+summaries. Page wording never changes the static category. A missing callback,
+exception, malformed result, or negative decision denies the command. A host
+denial reason is reduced to a bounded single line before it enters an error or
+action record. Batch envelopes don't bypass the gate: each inner command is
+checked and recorded, and nested batches are rejected.
 
 These controls bound consequences; they do not solve prompt injection. A page
 can mutate itself or make network requests while loading, and a GET navigation
 can have server-side effects on a poorly designed site. Read-only mode does not
 disable JavaScript, networking, cookies, downloads initiated by the page, or
-access already granted to an attached profile. Approval categories are coarse
-capability labels, not a semantic understanding of purchases, messages, or
-account changes. Use a dedicated browser profile, restrict network/filesystem
-access outside the harness, keep domain/user policy in the host, and require a
-human decision for consequential actions.
+access already granted to an attached profile. Domain rules cover top-level
+documents only; they don't filter iframes, images, scripts, fonts, fetches,
+WebSockets, service workers, or other subresources. They are not network
+isolation. The policy does not impose download, message, submission, or general
+resource rules beyond the explicit tool classes above. Use a dedicated browser
+profile, enforce network and filesystem boundaries outside the harness, and
+require a human decision for consequential actions.
+
+The standalone CLI currently exposes only read-only mode through
+`BLOP_BROWSER_READ_ONLY`. Domain rules, action decisions, and approval
+callbacks are embedding API features; the CLI does not invent a policy or
+human approval workflow.
 
 The trace API returns immutable copies and bounded JSON or human timelines.
 Failed and policy-denied actions remain visible. Read the

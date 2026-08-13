@@ -44,7 +44,9 @@ replaying it. The public `HarnessTraceEvent` contract includes these fields:
 - Redacted URLs before and after the command.
 - A succeeded or failed status with a bounded result or error.
 - The tool result's content and trust boundary when available.
-- Approved or denied policy metadata when an approval policy applies.
+- Approval metadata when an `ask` decision reaches the host callback.
+- Structured enforcement metadata for a blocked command: policy code, tool,
+  category, decision, and optional navigation phase and origin.
 - Screenshot indexes and screencast frame positions when the host provides
   them.
 
@@ -52,6 +54,10 @@ Every public browser tool is explicitly classified as `read`, `write`, or
 `batch`. A batch event is an envelope, not a second browser mutation; each
 inner command still receives its own ordered trace event. Failed and
 policy-denied attempts remain in the same sequence as successful commands.
+An event can contain both fields. For example, a host can approve a pointer
+command before an independent domain rule rejects its resulting navigation;
+the trace retains the pointer approval in `approval` and the domain denial in
+`policy`.
 
 Session start, close, and destroy transitions use lifecycle events. A destroy
 response can include its final lifecycle event, but `destroy` then removes the
@@ -103,7 +109,8 @@ The recorder redacts `browser_type` text, values, file paths, common
 secret-bearing keys, URL credentials, URL query and fragment values, and
 recognized secret patterns. It also applies redaction to results, errors,
 approval reasons, identity strings, media paths, and secret-labelled URL path
-segments. Redacted string and array inputs retain only type and length
+segments. Structured policy metadata stores only a redacted origin, not its
+query or fragment. Redacted string and array inputs retain only type and length
 summaries when useful for debugging.
 
 By default, the recorder retains at most 100 events, limits individual strings

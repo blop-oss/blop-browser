@@ -58,10 +58,18 @@ const guards = new WeakMap<BrowserContext, InstalledGuard>();
 const contextPolicies = new WeakMap<BrowserContext, string>();
 
 export async function installNavigationPolicyGuard(
-  context: BrowserContext,
+  context: BrowserContext | undefined,
   policy: CompiledBrowserDomainPolicy | undefined,
 ): Promise<NavigationPolicyGuard> {
   const hasRules = Boolean(policy && (policy.allow.length > 0 || policy.deny.length > 0));
+  if (!context) {
+    if (hasRules) {
+      throw new TypeError(
+        "Browser domain policy requires a Playwright BrowserContext.",
+      );
+    }
+    return NOOP_GUARD;
+  }
   const fingerprint = hasRules ? policy!.fingerprint : NO_DOMAIN_POLICY;
   const registeredPolicy = contextPolicies.get(context);
   if (registeredPolicy !== undefined && registeredPolicy !== fingerprint) {

@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { shouldRunFirstConfig } from "../../src/cli.js";
-import { MAX_PERSISTED_TRACE_BYTES } from "../../src/cli/trace-store.js";
+import {
+  MAX_PERSISTED_TRACE_BYTES,
+  persistCliTrace,
+} from "../../src/cli/trace-store.js";
+import { createTraceRecorder } from "../../src/trace-recorder.js";
 import { startFixtureServer, type FixtureServer } from "../fixtures/server.js";
 
 type CliResult = {
@@ -736,6 +740,141 @@ describe("blop-browser CLI", () => {
     const malformed = await runCliResult(["--session", session, "trace", "--json"], runtimeDir);
     expect(malformed.exitCode).toBe(1);
     expect(malformed.response.error?.message).toContain("top-level contract is invalid");
+
+    const timestamp = new Date().toISOString();
+    const event = {
+      sequence: 1,
+      kind: "action",
+      timestamp,
+      completedAt: timestamp,
+      durationMs: 1,
+      stateChanging: true,
+      command: "browser_click",
+      input: {},
+      targetRefs: [],
+      url: { before: "https://allowed.example", after: "https://allowed.example" },
+      status: "failed",
+      error: "denied",
+      policy: {
+        code: "domain_denied",
+        toolName: "browser_click",
+        category: "navigation",
+        decision: "deny",
+        unexpected: "tampered",
+      },
+    };
+    await writeFile(tracePath, JSON.stringify({
+      version: 1,
+      generatedAt: timestamp,
+      omittedEvents: 0,
+      events: [event],
+    }));
+    const invalidPolicy = await runCliResult(["--session", session, "trace", "--json"], runtimeDir);
+    expect(invalidPolicy.exitCode).toBe(1);
+    expect(invalidPolicy.response.error?.message).toContain("event policy is invalid");
+
+    event.policy = {
+      code: "domain_denied",
+      toolName: "browser_click",
+      category: "navigation",
+      decision: 42,
+    } as never;
+    await writeFile(tracePath, JSON.stringify({
+      version: 1,
+      generatedAt: timestamp,
+      omittedEvents: 0,
+      events: [event],
+    }));
+    const malformedPolicy = await runCliResult(["--session", session, "trace", "--json"], runtimeDir);
+    expect(malformedPolicy.exitCode).toBe(1);
+    expect(malformedPolicy.response.error?.message).toContain("event policy is invalid");
+
+    event.policy = {
+      code: "page_override",
+      toolName: "browser_click",
+      category: "navigation",
+      decision: "deny",
+    } as never;
+    await writeFile(tracePath, JSON.stringify({
+      version: 1,
+      generatedAt: timestamp,
+      omittedEvents: 0,
+      events: [event],
+    }));
+    const invalidPolicyEnum = await runCliResult(
+      ["--session", session, "trace", "--json"],
+      runtimeDir,
+    );
+    expect(invalidPolicyEnum.exitCode).toBe(1);
+    expect(invalidPolicyEnum.response.error?.message).toContain("event policy is invalid");
+
+    event.policy = {
+      code: "domain_denied",
+      toolName: "browser_click",
+      category: "navigation",
+      decision: "deny",
+      phase: "redirect",
+      origin: "https://user:secret@denied.example/private?token=secret",
+    };
+    await writeFile(tracePath, JSON.stringify({
+      version: 1,
+      generatedAt: timestamp,
+      omittedEvents: 0,
+      events: [event],
+    }));
+    const invalidPolicyOrigin = await runCliResult(
+      ["--session", session, "trace", "--json"],
+      runtimeDir,
+    );
+    expect(invalidPolicyOrigin.exitCode).toBe(1);
+    expect(invalidPolicyOrigin.response.error?.message).toContain("event policy is invalid");
+    expect(JSON.stringify(invalidPolicyOrigin.response)).not.toContain("token=secret");
+  });
+
+  test("exports structured domain policy metadata from a persisted offline trace", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-trace-policy-"));
+    session = `trace-policy-${process.pid}`;
+    const artifactDirectory = join(runtimeDir, `${session}-artifacts`);
+    const trace = createTraceRecorder({ identity: { sessionId: session } });
+    const timestamp = new Date().toISOString();
+    trace.record({
+      name: "browser_click",
+      input: { target: "Leave site" },
+      output: "Browser session policy blocked browser_click: navigation is denied.",
+      outputBoundary: {
+        source: "mixed",
+        trust: "untrusted",
+        browser: {
+          source: "browser",
+          trust: "untrusted",
+          url: "https://allowed.example/",
+        },
+      },
+      metadata: {
+        error: "Browser session policy blocked browser_click: navigation is denied.",
+        policyBlocked: true,
+        policyCode: "domain_denied",
+        policyTool: "browser_click",
+        policyCategory: "navigation",
+        policyDecision: "deny",
+        policyPhase: "redirect",
+        policyOrigin: "https://denied.example",
+      },
+      timestamp,
+      durationMs: 1,
+    });
+    await persistCliTrace(artifactDirectory, trace.json(true), trace.timeline());
+
+    const offline = await runCli(["--session", session, "trace", "--json"], runtimeDir);
+    expect(offline.result?.events).toHaveLength(1);
+    expect(offline.result?.events[0]?.policy).toEqual({
+      code: "domain_denied",
+      toolName: "browser_click",
+      category: "navigation",
+      decision: "deny",
+      phase: "redirect",
+      origin: "https://denied.example",
+    });
   });
 
   test("connects to Chrome over CDP without closing the external browser", async () => {
