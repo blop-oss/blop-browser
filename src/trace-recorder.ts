@@ -101,6 +101,15 @@ export type TraceApproval = {
   reason?: string;
 };
 
+export type TracePolicyDecision = {
+  code: string;
+  toolName: string;
+  category: string;
+  decision: string;
+  phase?: string;
+  origin?: string;
+};
+
 export type TraceMediaPosition = {
   screenshot?: {
     path: string;
@@ -132,6 +141,7 @@ export type HarnessTraceEvent = {
   result?: string;
   error?: string;
   approval?: TraceApproval;
+  policy?: TracePolicyDecision;
   media?: TraceMediaPosition;
 };
 
@@ -216,6 +226,11 @@ export function createTraceRecorder(options: TraceRecorderOptions = {}): TraceRe
         sensitiveValues,
         maxStringLength,
       );
+      const policy = sanitizePolicyDecision(
+        policyFromMetadata(action.metadata, maxStringLength),
+        sensitiveValues,
+        maxStringLength,
+      );
       const media = sanitizeMedia(
         context.media ?? mediaFromMetadata(action.metadata, maxStringLength),
         sensitiveValues,
@@ -244,6 +259,7 @@ export function createTraceRecorder(options: TraceRecorderOptions = {}): TraceRe
           : {}),
         ...(failed ? { error: output } : { result: output }),
         ...(approval ? { approval } : {}),
+        ...(policy ? { policy } : {}),
         ...(media ? { media } : {}),
       };
       nextSequence += 1;
@@ -301,13 +317,16 @@ export function formatTraceTimeline(
     const approval = event.approval
       ? ` approval=${event.approval.status}${event.approval.policy ? `:${event.approval.policy}` : ""}`
       : "";
+    const policy = event.policy
+      ? ` policy=${event.policy.code}:${event.policy.decision}`
+      : "";
     const media = [
       event.media?.screenshot ? `screenshot=${event.media.screenshot.index ?? "?"}:${event.media.screenshot.path}` : "",
       event.media?.screencast ? `frame=${event.media.screencast.frame}` : "",
     ].filter(Boolean).join(" ");
     const outcome = boundedString(event.error ?? event.result ?? "", Math.min(maxStringLength, 300));
     return `${String(event.sequence).padStart(4, "0")} ${event.timestamp} ${status} [${operation}] ${event.command}`
-      + `${navigation}${refs}${approval}${media ? ` ${media}` : ""}${outcome ? ` — ${outcome}` : ""}`;
+      + `${navigation}${refs}${approval}${policy}${media ? ` ${media}` : ""}${outcome ? ` — ${outcome}` : ""}`;
   });
   return boundUtf8(`${header}\n${lines.join("\n")}`, maxBytes);
 }
@@ -484,6 +503,39 @@ function sanitizeApproval(
   });
 }
 
+function sanitizePolicyDecision(
+  policy: TracePolicyDecision | undefined,
+  sensitiveValues: string[],
+  maxStringLength: number,
+): TracePolicyDecision | undefined {
+  if (!policy) return undefined;
+  return immutableCopy({
+    code: redactTraceText(policy.code, sensitiveValues, maxStringLength),
+    toolName: redactTraceText(policy.toolName, sensitiveValues, maxStringLength),
+    category: redactTraceText(policy.category, sensitiveValues, maxStringLength),
+    decision: redactTraceText(policy.decision, sensitiveValues, maxStringLength),
+    ...(policy.phase
+      ? { phase: redactTraceText(policy.phase, sensitiveValues, maxStringLength) }
+      : {}),
+    ...(policy.origin
+      ? { origin: redactPolicyOrigin(policy.origin, maxStringLength, sensitiveValues) }
+      : {}),
+  });
+}
+
+function redactPolicyOrigin(
+  origin: string,
+  maxStringLength: number,
+  sensitiveValues: string[],
+) {
+  const redacted = redactTraceUrl(origin, maxStringLength, sensitiveValues);
+  try {
+    return new URL(redacted).origin;
+  } catch {
+    return redacted;
+  }
+}
+
 function sanitizeMedia(
   media: TraceMediaPosition | undefined,
   sensitiveValues: string[],
@@ -574,6 +626,38 @@ function approvalFromMetadata(metadata: Record<string, unknown> | undefined, max
     } satisfies TraceApproval;
   }
   return undefined;
+}
+
+function policyFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+  maxStringLength: number,
+): TracePolicyDecision | undefined {
+  if (metadata?.policyBlocked !== true) return undefined;
+  const code = typeof metadata.policyCode === "string"
+    ? boundedString(metadata.policyCode, maxStringLength)
+    : undefined;
+  const toolName = typeof metadata.policyTool === "string"
+    ? boundedString(metadata.policyTool, maxStringLength)
+    : undefined;
+  const category = typeof metadata.policyCategory === "string"
+    ? boundedString(metadata.policyCategory, maxStringLength)
+    : undefined;
+  const decision = typeof metadata.policyDecision === "string"
+    ? boundedString(metadata.policyDecision, maxStringLength)
+    : undefined;
+  if (!code || !toolName || !category || !decision) return undefined;
+  return {
+    code,
+    toolName,
+    category,
+    decision,
+    ...(typeof metadata.policyPhase === "string"
+      ? { phase: boundedString(metadata.policyPhase, maxStringLength) }
+      : {}),
+    ...(typeof metadata.policyOrigin === "string"
+      ? { origin: boundedString(metadata.policyOrigin, maxStringLength) }
+      : {}),
+  };
 }
 
 function mediaFromMetadata(metadata: Record<string, unknown> | undefined, maxStringLength: number) {

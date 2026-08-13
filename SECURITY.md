@@ -139,35 +139,58 @@ page state are marked `source: "mixed"` and remain untrusted. Hosts must
 preserve this `contentBoundary`; concatenating page output into system or tool
 instructions discards the boundary and defeats the mitigation.
 
-The TypeScript embedding API provides two consequence controls:
+The TypeScript embedding API provides three consequence controls. A host fixes
+these controls when it creates tools for a browser context; page content and
+model output can't rewrite them:
 
 - `safety.mode: "read-only"` rejects pointer, keyboard, form, upload, and
   page-closing tools before Playwright dispatch. Navigation and observation are
   deliberately still available so read-only research can traverse documents;
   this means the mode is not an HTTP safe-method or network-isolation promise.
 - `safety.approvalPolicy` lets a host approve or deny each statically classified
-  interaction. `browser_upload_file` is classified as `file-upload`; page text
+  `ask` interaction. `safety.actions` can set `allow`, `deny`, or `ask` for
+  `navigation`, `pointer`, `keyboard`, `form`, `file-upload`, and
+  `page-lifecycle`. `browser_upload_file` is always `file-upload`; page text
   cannot reclassify it. Callback input is bounded, secret-bearing values and
-  local paths are redacted, and URL queries/fragments are removed. A missing or
-  negative decision denies the action. Denials remain visible in the action
-  trail.
+  local paths are redacted, and URL queries/fragments are removed. A missing,
+  thrown, malformed, or negative decision denies the action. Denials remain
+  visible in the action trail and action trace.
+- `safety.domains` applies exact or wildcard origin rules to top-level HTTP and
+  HTTPS documents. A nonempty allow list denies nonmatches, and deny rules win.
+  The gate checks requested `browser_goto` destinations, redirect hops, and
+  top-level navigation caused by other commands. It rejects every new page or
+  popup before the first request while domain rules are active because
+  Chromium doesn't expose that page early enough to cover a later redirect.
+  The policy is immutable per `BrowserContext`, and nonempty rules fail setup
+  on non-Chromium backends.
+
+The `navigation` action class covers only explicit `browser_goto`, reload,
+back, and forward commands. A click or keyboard command that navigates keeps
+its original class and does not receive a second destination-aware approval;
+the independent domain gate still checks its top-level destination. The
+`form` class covers check, uncheck, and option selection, not every possible
+form submission. The policy does not infer purchases, messages, account
+changes, or other intent from page text.
 
 These mechanisms reduce what an injected instruction can cause, but they
 cannot determine whether page text is truthful or whether an approved click is
 a purchase, message, account change, or destructive form submission. They also
 cannot prevent a site from changing server state during navigation, running
 JavaScript, issuing background requests, setting cookies, or initiating a
-download without a harness interaction. An approval callback is host policy,
-not proof that a human reviewed the decision.
+download without a harness interaction. Domain rules do not filter subframes,
+images, scripts, fonts, fetches, WebSockets, service workers, or other
+subresources, so they are not network isolation. An approval callback is host
+policy, not proof that a human reviewed the decision.
 
 The CLI does not invent an approval workflow on the user's behalf. Hosts that
 need enforced approvals must use the embedding API and connect it to their own
 trusted UI or policy engine. The CLI can enforce read-only mode when its daemon
-starts with `BLOP_BROWSER_READ_ONLY=1`. Named sessions isolate harness state by
-name, not by domain; use separate browser contexts or dedicated profiles and
-enforce domain/network boundaries outside this package. No browser-tool
-contract can make an everyday authenticated profile safe for arbitrary hostile
-pages.
+starts with `BLOP_BROWSER_READ_ONLY=1`. The CLI doesn't currently expose domain
+rules, action decisions, or an approval callback. Named sessions isolate
+harness state by name, not by domain; use the TypeScript policy where its
+top-level scope is sufficient, and enforce full network boundaries outside
+this package. No browser-tool contract can make an everyday authenticated
+profile safe for arbitrary hostile pages.
 
 ## Trace privacy and retention
 

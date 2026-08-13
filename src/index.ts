@@ -25,13 +25,24 @@ export type {
   NativeToolResult,
   BrowserToolContext,
   BrowserActionCategory,
+  BrowserDomainPolicy,
+  BrowserNavigationPhase,
+  BrowserPolicyDecision,
   BrowserApprovalDecision,
   BrowserApprovalPolicy,
   BrowserApprovalRequest,
   BrowserSafetyPolicy,
+  BrowserSessionPolicy,
 } from "./tools/types.js";
 
-export { BrowserSafetyError, BrowserToolError } from "./tools/safety.js";
+export {
+  BROWSER_TOOL_POLICY_CLASSES,
+  BrowserSafetyError,
+  BrowserToolError,
+  browserDomainAllowed,
+  validateBrowserSessionPolicy,
+  type BrowserToolPolicyClass,
+} from "./tools/safety.js";
 
 export { startScreencast, type Screencast, type ScreencastFrame, type ScreencastOptions } from "./screencast.js";
 
@@ -45,6 +56,7 @@ export {
   type HarnessTraceEvent,
   type HarnessTraceExport,
   type TraceApproval,
+  type TracePolicyDecision,
   type TraceIdentity,
   type TraceMediaPosition,
   type TraceRecorder,

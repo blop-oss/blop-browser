@@ -2,6 +2,7 @@ import { chmod, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { HarnessTraceExport } from "../trace-recorder.js";
+import { BROWSER_TOOL_CONTENT_KINDS } from "../tools/safety.js";
 
 /** Recorder default (768 KiB) plus the single persisted trailing newline. */
 export const MAX_PERSISTED_TRACE_BYTES = 768 * 1024 + 1;
@@ -9,6 +10,22 @@ const MAX_PERSISTED_EVENTS = 100;
 const MAX_PERSISTED_STRING_LENGTH = 8_000;
 const MAX_VALIDATION_DEPTH = 8;
 const MAX_VALIDATION_NODES = 5_000;
+const POLICY_CODES = new Set([
+  "read_only",
+  "policy_denied",
+  "approval_denied",
+  "domain_denied",
+]);
+const POLICY_CATEGORIES = new Set([
+  "navigation",
+  "pointer",
+  "keyboard",
+  "form",
+  "file-upload",
+  "page-lifecycle",
+]);
+const POLICY_DECISIONS = new Set(["allow", "deny", "ask"]);
+const POLICY_PHASES = new Set(["requested", "redirect", "navigation", "new-page"]);
 
 export type CliTracePaths = {
   json: string;
@@ -135,8 +152,45 @@ function validateTraceExport(value: unknown, path: string): asserts value is Har
     }
     if (event.identity !== undefined) validateIdentity(event.identity, path);
     if (event.approval !== undefined) validateBoundedJson(event.approval, path, budget, 0);
+    if (event.policy !== undefined) validatePolicy(event.policy, path);
     if (event.media !== undefined) validateBoundedJson(event.media, path, budget, 0);
     if (event.contentBoundary !== undefined) validateBoundedJson(event.contentBoundary, path, budget, 0);
+  }
+}
+
+function validatePolicy(value: unknown, path: string) {
+  const allowedKeys = new Set(["code", "toolName", "category", "decision", "phase", "origin"]);
+  if (!isRecord(value)
+    || Object.keys(value).some((key) => !allowedKeys.has(key))
+    || !knownString(value.code, POLICY_CODES)
+    || !registeredToolName(value.toolName)
+    || !knownString(value.category, POLICY_CATEGORIES)
+    || !knownString(value.decision, POLICY_DECISIONS)
+    || (value.phase !== undefined && !knownString(value.phase, POLICY_PHASES))
+    || (value.origin !== undefined && !canonicalHttpOrigin(value.origin))) {
+    throw invalidStoredTrace(path, "event policy is invalid");
+  }
+}
+
+function registeredToolName(value: unknown): value is string {
+  return boundedNonEmptyString(value)
+    && Object.prototype.hasOwnProperty.call(BROWSER_TOOL_CONTENT_KINDS, value);
+}
+
+function knownString(value: unknown, allowed: ReadonlySet<string>): value is string {
+  return boundedNonEmptyString(value) && allowed.has(value);
+}
+
+function canonicalHttpOrigin(value: unknown): value is string {
+  if (!boundedNonEmptyString(value)) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && !url.username
+      && !url.password
+      && url.origin === value;
+  } catch {
+    return false;
   }
 }
 
@@ -192,6 +246,10 @@ function nonNegativeInteger(value: unknown): value is number {
 
 function boundedString(value: unknown, max = MAX_PERSISTED_STRING_LENGTH): value is string {
   return typeof value === "string" && value.length <= max;
+}
+
+function boundedNonEmptyString(value: unknown): value is string {
+  return boundedString(value) && value.length > 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

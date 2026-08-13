@@ -40,15 +40,33 @@ export type NativeToolResult = Promise<Omit<NativeToolPayload, "modelImages"> & 
 }>;
 
 export type BrowserActionCategory =
+  | "navigation"
   | "pointer"
   | "keyboard"
   | "form"
   | "file-upload"
   | "page-lifecycle";
 
+export type BrowserPolicyDecision = "allow" | "deny" | "ask";
+
+export type BrowserDomainPolicy = {
+  /**
+   * Exact HTTP(S) origins or wildcard subdomains such as
+   * `https://*.example.com`. A wildcard matches any subdomain depth, excludes
+   * the apex, and uses the scheme and effective port in the rule.
+   */
+  allow?: readonly string[];
+  /** Deny rules take precedence over allow rules. */
+  deny?: readonly string[];
+};
+
+export type BrowserNavigationPhase = "requested" | "redirect" | "navigation" | "new-page";
+
 export type BrowserApprovalRequest = {
   toolName: string;
   category: BrowserActionCategory;
+  /** Static session-policy decision that caused this approval request. */
+  decision: "ask";
   /**
    * Bounded, recursively copied input for approval UI. Secret-bearing fields
    * such as text, values, and file paths are replaced by redaction summaries.
@@ -70,18 +88,31 @@ export type BrowserApprovalPolicy = (
   request: BrowserApprovalRequest,
 ) => BrowserApprovalDecision | Promise<BrowserApprovalDecision>;
 
-export type BrowserSafetyPolicy = {
+export type BrowserSessionPolicy = {
   /**
    * Read-only mode rejects input-dispatching and page-lifecycle tools before
    * they reach Playwright. Navigation and observation tools remain available.
    */
   mode?: "read-write" | "read-only";
+  /** Static decisions by harness-defined action class. */
+  actions?: Partial<Record<BrowserActionCategory, BrowserPolicyDecision>>;
   /**
-   * Called before each potentially state-changing interaction. A missing,
-   * malformed, or negative decision denies the action.
+   * Top-level HTTP(S) document destination rules, including redirect hops.
+   * Nonempty rules require Chromium and fail closed for new pages/popups.
+   * Subframes, subresources, and page-initiated fetches are outside this gate.
+   */
+  domains?: BrowserDomainPolicy;
+  /**
+   * Called when the static action decision is `ask`. For compatibility, an
+   * approval callback with no explicit action decision asks for each
+   * non-navigation interaction. A missing, malformed, thrown, or negative
+   * decision denies the action.
    */
   approvalPolicy?: BrowserApprovalPolicy;
 };
+
+/** @deprecated Use BrowserSessionPolicy. */
+export type BrowserSafetyPolicy = BrowserSessionPolicy;
 
 export type NativeToolBridge = {
   name: string;

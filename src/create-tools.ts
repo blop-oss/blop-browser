@@ -26,9 +26,14 @@ import {
   browserModelImages,
   browserToolError,
   defaultToolContentBoundary,
+  compileBrowserSessionPolicy,
   enforceBrowserSafety,
   mixedContentBoundary,
 } from "./tools/safety.js";
+import {
+  installNavigationPolicyGuard,
+  type NavigationPolicyGuard,
+} from "./tools/navigation-policy.js";
 
 const OUTCOME_TOOLS = new Set([
   "browser_goto", "browser_go_back", "browser_go_forward", "browser_reload",
@@ -43,7 +48,9 @@ export type { FinishState, NativeToolBridge } from "./tools/types.js";
 export async function createBrowserTools(
   options: Omit<BrowserToolContext, "record" | "screenshotArtifacts" | "criticalPoints" | "setActivePage" | "getActivePage" | "getNetworkActivity"> & Partial<Pick<BrowserToolContext, "screenshotArtifacts" | "criticalPoints" | "setActivePage" | "getActivePage">>,
 ): Promise<NativeToolBridge[]> {
+  const sessionPolicy = compileBrowserSessionPolicy(options.safety);
   await mkdir(options.screenshotDir, { recursive: true });
+  let navigationPolicy: NavigationPolicyGuard;
 
   // The active page tools operate on. Held in a mutable ref so the host (or
   // the browser_select_page tool) can swap it without rebuilding the tools:
@@ -93,6 +100,12 @@ export async function createBrowserTools(
       const startedAt = performance.now();
       const traceStartedAt = new Date().toISOString();
       const urlBefore = pageUrl(ref.page);
+      const navigationCheckpoint = navigationPolicy.checkpoint(ref.page);
+      let navigationPolicySettled = false;
+      const settleNavigationPolicy = () => {
+        navigationPolicySettled = true;
+        return navigationPolicy.settleViolation(navigationCheckpoint, name);
+      };
       let before = null;
       let approval: TraceApproval | undefined;
       let result: Awaited<NativeToolResult>;
@@ -100,7 +113,8 @@ export async function createBrowserTools(
         const safetyDecision = await enforceBrowserSafety({
           page: ref.page,
           testId: options.testId,
-          safety: options.safety,
+          safety: sessionPolicy,
+          baseUrl: options.baseUrl,
           toolName: name,
           input,
         });
@@ -113,6 +127,8 @@ export async function createBrowserTools(
         }
         before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
         const payload = await fn();
+        const navigationViolation = settleNavigationPolicy();
+        if (navigationViolation) throw navigationViolation;
         result = {
           content: payload.content,
           ...(payload.metadata ? { metadata: payload.metadata } : {}),
@@ -122,7 +138,10 @@ export async function createBrowserTools(
           contentBoundary: defaultToolContentBoundary(name, ref.page),
         };
       } catch (error) {
-        const toolError = browserToolError(error, ref.page);
+        const navigationViolation = navigationPolicySettled
+          ? undefined
+          : settleNavigationPolicy();
+        const toolError = browserToolError(navigationViolation ?? error, ref.page);
         const message = toolError.message;
         const timestamp = new Date().toISOString();
         const action: HarnessAction = {
@@ -137,6 +156,9 @@ export async function createBrowserTools(
               policyCode: toolError.code,
               policyTool: toolError.toolName,
               policyCategory: toolError.category,
+              policyDecision: toolError.decision,
+              ...(toolError.phase ? { policyPhase: toolError.phase } : {}),
+              ...(toolError.origin ? { policyOrigin: toolError.origin } : {}),
             } : {}),
           },
           timestamp,
@@ -242,6 +264,11 @@ export async function createBrowserTools(
   if (unclassified.length) {
     throw new Error(`Browser tool content-boundary classification is missing for: ${unclassified.join(", ")}`);
   }
+
+  navigationPolicy = await installNavigationPolicyGuard(
+    typeof options.page.context === "function" ? options.page.context() : undefined,
+    sessionPolicy.domains,
+  );
 
   // The batch tool replays the other tools by name, so it is built last from
   // the finished list. Inner steps record their own actions, keeping the

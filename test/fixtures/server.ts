@@ -4,6 +4,8 @@ export type FixtureRoute = {
   path: string;
   body: string;
   contentType?: string;
+  status?: number;
+  headers?: Record<string, string>;
   method?: string;
   onRequest?: (request: IncomingMessage, body: string) => void | Promise<void>;
 };
@@ -47,7 +49,10 @@ async function respond(request: IncomingMessage, response: ServerResponse, route
 
   const body = await readRequestBody(request);
   await route.onRequest?.(request, body);
-  response.writeHead(200, { "content-type": route.contentType ?? "text/html; charset=utf-8" });
+  response.writeHead(route.status ?? 200, {
+    "content-type": route.contentType ?? "text/html; charset=utf-8",
+    ...route.headers,
+  });
   response.end(route.body);
 }
 
