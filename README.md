@@ -374,32 +374,15 @@ connection.
 
 ## Compare browser interfaces
 
-This table compares documented architecture and interfaces, not benchmark
-quality. Projects change quickly, so uncertain or undocumented fields are
-marked instead of inferred. The sources were reviewed on August 13, 2026.
+See the [evidence-backed browser tool comparison](docs/browser-tool-comparison.md)
+for a reviewed, source-pinned matrix covering Blop Browser, Playwright CLI,
+Playwright MCP, agent-browser, and Browser Use CLI with Browser Harness. It
+compares profiles, parallel isolation, existing-browser access, engines,
+embedding, remote execution, recordings, safety controls, and cleanup.
 
-| Capability                       | Blop Browser                                                               | Playwright CLI                                                                   | Vercel agent-browser                                                    | Playwright MCP                                                                           | browser-use/browser-harness                                                   |
-| -------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Primary interface                | CLI, skill, JSON, and TypeScript API                                       | CLI and skill                                                                    | CLI, skill, and JSON                                                    | MCP server                                                                               | Python CLI/skill and editable helpers                                         |
-| State persists between commands  | Yes, through a per-session daemon                                          | Yes, in memory; optional disk profile                                            | Yes, through a daemon; optional restore                                 | Yes, through the server and profile                                                      | Yes, through a long-lived CDP connection                                      |
-| Named session isolation          | Yes, `--session`                                                           | Yes, `-s`                                                                        | Yes, `--session`                                                        | Per-server isolated/profile configuration; no comparable named-session switch documented | Named remote daemons are documented; local multi-session isolation is unclear |
-| Existing Chrome reuse            | Yes, direct CDP endpoint                                                   | Yes, CDP or extension                                                            | Yes, direct CDP or auto-connect                                         | Yes, extension or configured endpoint                                                    | Yes, direct CDP                                                               |
-| Controlled, bounded tool surface | Yes; arbitrary page script and unrestricted CDP are intentionally excluded | No equivalent restriction documented; code/evaluation capabilities are available | No equivalent restriction documented; `eval` is available               | Structured tools, but evaluation/init-code capabilities are documented                   | No; the project explicitly exposes raw CDP and agent-written helpers          |
-| Camoufox support                 | Yes, local and warm container modes                                        | Not documented                                                                   | Not documented                                                          | Not documented                                                                           | Not documented                                                                |
-| Public TypeScript embedding API  | Yes                                                                        | Not documented                                                                   | Current docs are CLI-first; no public browser-manager API is documented | Not documented as a browser-tool embedding API                                           | No; the project is Python-based                                               |
-| Warm Docker browser service      | Yes; reused service, isolated browser per client                           | Not documented                                                                   | Warm sandbox templates are documented, not this service contract        | Long-lived Docker server documented; isolated-browser-per-client behavior is unclear     | Not documented                                                                |
-
-Comparison sources:
-
-- [Playwright CLI sessions and CDP attachment](https://github.com/microsoft/playwright-cli#sessions)
-  and [Playwright CLI introduction](https://playwright.dev/agent-cli/introduction)
-- [Vercel agent-browser README](https://github.com/vercel-labs/agent-browser#readme)
-- [Playwright MCP profiles, isolation, extension, and Docker](https://github.com/microsoft/playwright-mcp#readme)
-- [browser-use/browser-harness README](https://github.com/browser-use/browser-harness#readme)
-  and [connection guide](https://github.com/browser-use/browser-harness/blob/main/install.md)
-
-`browser-use/browser-harness` in this table is the separate Browser Use project,
-not this repository's retained npm package name.
+The document records competitor advantages and tradeoffs instead of treating
+the matrix as a ranking. Unknown or untested behavior stays explicit, and every
+nontrivial product cell links to primary evidence.
 
 ## Configuration reference
 
