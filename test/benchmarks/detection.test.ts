@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import {
@@ -254,6 +255,26 @@ describe("local backend signal protocol", () => {
     expect(runner).not.toContain("BLOP_DETECTION_URL");
     expect(runner).toContain("It has no live-URL option.");
   });
+
+  test("keeps the published summary tied to the protocol and package", async () => {
+    const [protocol, results, packageDocument] = await Promise.all([
+      readFile("benchmarks/detection/protocol.json", "utf8"),
+      readFile("benchmarks/detection/RESULTS.md", "utf8"),
+      readPackage("package.json"),
+    ]);
+    const protocolHash = createHash("sha256").update(protocol).digest("hex");
+
+    expect(results).toContain(protocolHash);
+    expect(results).toContain("Working tree dirty");
+    expect(results).toContain("`false`");
+    expect(results).toContain("3/3 collected");
+    expect(results).toContain("| None");
+    expect(results).toContain("not a detection pass");
+    expect(packageDocument.files).toContain("benchmarks/detection/RESULTS.md");
+    expect(packageDocument.files).not.toContain(
+      "benchmarks/detection/.results",
+    );
+  });
 });
 
 function fakeLauncher(name: string, version: string) {
@@ -270,7 +291,10 @@ function fakeLauncher(name: string, version: string) {
 }
 
 async function readPackage(path: string) {
-  return JSON.parse(await readFile(path, "utf8")) as { version: string };
+  return JSON.parse(await readFile(path, "utf8")) as {
+    version: string;
+    files?: string[];
+  };
 }
 
 function signalsFor(

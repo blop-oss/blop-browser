@@ -6,6 +6,10 @@ three repetitions per backend against an internal loopback fixture. It does not
 produce a detection score, test a third-party site, or show that either backend
 can avoid a site's controls.
 
+See the [dated local result summary](RESULTS.md) for one committed, bounded
+three-repetition run against both backends. Its raw per-attempt signals remain
+private and ignored.
+
 <!-- prettier-ignore -->
 > [!IMPORTANT]
 > Use this protocol only as local compatibility evidence. It doesn't grant

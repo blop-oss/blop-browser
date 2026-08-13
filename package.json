@@ -22,6 +22,7 @@
     "benchmarks/README.md",
     "benchmarks/result.schema.json",
     "benchmarks/detection/README.md",
+    "benchmarks/detection/RESULTS.md",
     "benchmarks/detection/core.mjs",
     "benchmarks/detection/protocol.json",
     "benchmarks/detection/result.schema.json",
