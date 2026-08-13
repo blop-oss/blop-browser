@@ -3,6 +3,11 @@ import "./session/bun-ws-compat.js";
 export type {
   TestStatus,
   HarnessAction,
+  BrowserContentBoundary,
+  CallerContentBoundary,
+  HarnessContentBoundary,
+  MixedContentBoundary,
+  ToolContentBoundary,
   HarnessScreenshot,
   HarnessCriticalPoint,
   HarnessBrowserLog,
@@ -16,9 +21,17 @@ export {
 
 export type {
   NativeModelImage,
+  NativeModelImageInput,
   NativeToolResult,
   BrowserToolContext,
+  BrowserActionCategory,
+  BrowserApprovalDecision,
+  BrowserApprovalPolicy,
+  BrowserApprovalRequest,
+  BrowserSafetyPolicy,
 } from "./tools/types.js";
+
+export { BrowserSafetyError, BrowserToolError } from "./tools/safety.js";
 
 export { startScreencast, type Screencast, type ScreencastFrame, type ScreencastOptions } from "./screencast.js";
 

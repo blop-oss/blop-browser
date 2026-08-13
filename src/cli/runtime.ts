@@ -211,6 +211,7 @@ async function createRuntimeFromBrowser(
   const pages: Page[] = [];
   let currentSessionScope = sessionScope;
   let closed = false;
+  const safetyMode = process.env.BLOP_BROWSER_READ_ONLY === "1" ? "read-only" : "read-write";
 
   const attachPage = (candidate: Page) => {
     if (pages.includes(candidate)) return;
@@ -249,6 +250,7 @@ async function createRuntimeFromBrowser(
     screenshots: [],
     finishState,
     browserLogs,
+    safety: { mode: safetyMode },
   });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
@@ -282,6 +284,7 @@ async function createRuntimeFromBrowser(
       finishState,
       artifactDirectory,
       sessionScope: currentSessionScope ? { ...currentSessionScope } : undefined,
+      safetyMode,
     }),
     setExpiresAt: (expiresAt) => {
       if (currentSessionScope) currentSessionScope = { ...currentSessionScope, expiresAt };

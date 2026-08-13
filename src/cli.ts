@@ -31,6 +31,8 @@ import {
   type HarnessCliRuntime,
 } from "./cli/runtime.js";
 import { getBrowserSessionScope, type BrowserProfileMode } from "./session/scope.js";
+import type { ToolContentBoundary } from "./types.js";
+import { BrowserSafetyError, BrowserToolError } from "./tools/safety.js";
 
 const HELP = `Blop Browser — browser infrastructure for coding agents
 
@@ -861,7 +863,17 @@ async function handleDaemonRequest(
       }
       return okResponse(id, await runtime.call(name, input as Record<string, unknown>));
     } catch (error) {
-      return errorResponse(id, "tool_error", messageOf(error));
+      return errorResponse(
+        id,
+        "tool_error",
+        messageOf(error),
+        error instanceof BrowserToolError ? error.contentBoundary : undefined,
+        error instanceof BrowserSafetyError ? {
+          code: error.code,
+          toolName: error.toolName,
+          category: error.category,
+        } : undefined,
+      );
     }
   }
   if (method === "shutdown") {
@@ -888,12 +900,31 @@ function printResponse(response: RpcResponse, json: boolean) {
     return;
   }
   if (!response.ok) {
-    process.stderr.write(`${response.error?.message ?? "Unknown CLI error"}\n`);
+    const boundary = response.error?.contentBoundary
+      ? `${formatContentBoundary(response.error.contentBoundary)}\n`
+      : "";
+    process.stderr.write(`${boundary}${response.error?.message ?? "Unknown CLI error"}\n`);
     return;
   }
-  const result = response.result as { content?: unknown } | undefined;
-  if (typeof result?.content === "string") process.stdout.write(`${result.content}\n`);
+  const result = response.result as { content?: unknown; contentBoundary?: ToolContentBoundary } | undefined;
+  if (typeof result?.content === "string") {
+    const boundary = result.contentBoundary ? `${formatContentBoundary(result.contentBoundary)}\n` : "";
+    process.stdout.write(`${boundary}${result.content}\n`);
+  }
   else process.stdout.write(`${JSON.stringify(response.result, null, 2)}\n`);
+}
+
+function formatContentBoundary(boundary: ToolContentBoundary) {
+  if (boundary.source === "browser") {
+    return "[content-boundary source=browser trust=untrusted]";
+  }
+  if (boundary.source === "mixed") {
+    return "[content-boundary source=mixed trust=untrusted]";
+  }
+  if (boundary.source === "caller") {
+    return "[content-boundary source=caller trust=untrusted]";
+  }
+  return "[content-boundary source=harness trust=trusted]";
 }
 
 function messageOf(error: unknown) {

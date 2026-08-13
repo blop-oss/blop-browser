@@ -1,4 +1,4 @@
-import type { NativeToolBridge } from "./types.js";
+import type { BrowserToolContext, NativeToolBridge } from "./types.js";
 
 const MAX_STEPS = 20;
 
@@ -15,7 +15,7 @@ const EXCLUDED_TOOLS = new Set(["browser_run_steps", "finish_test"]);
  * progress stream are unchanged. Execution stops at the first failing step and
  * reports per-step results so the agent can resume precisely.
  */
-export function createBatchTool(tools: NativeToolBridge[]): NativeToolBridge {
+export function createBatchTool(tools: NativeToolBridge[], context: BrowserToolContext): NativeToolBridge {
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
   return {
@@ -39,7 +39,7 @@ export function createBatchTool(tools: NativeToolBridge[]): NativeToolBridge {
       required: ["steps"],
     },
     promptSnippet: "- browser_run_steps: Batch a predictable sequence (navigate, fill, click, assert) into one call instead of one call per action. It stops at the first failure and tells you which step failed. Explore first; batch only steps you are confident about.",
-    execute: async (input) => {
+    execute: (input) => context.record("browser_run_steps", input, async () => {
       const steps = Array.isArray(input.steps) ? input.steps : [];
       if (steps.length === 0) throw new Error("browser_run_steps requires a non-empty steps array.");
       if (steps.length > MAX_STEPS) throw new Error(`browser_run_steps supports at most ${MAX_STEPS} steps, received ${steps.length}.`);
@@ -82,7 +82,7 @@ export function createBatchTool(tools: NativeToolBridge[]): NativeToolBridge {
         content: JSON.stringify(summary, null, 2),
         metadata: { status: summary.status, completedSteps: summary.completedSteps, totalSteps: steps.length, failedStep: failed?.step ?? null },
       };
-    },
+    }),
   };
 }
 
