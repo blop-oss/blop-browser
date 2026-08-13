@@ -3,6 +3,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { createBrowserTools } from "../../src/create-tools.js";
 import type { HarnessAction } from "../../src/types.js";
 import type { BrowserSafetyPolicy } from "../../src/tools/types.js";
+import type { TraceRecorder } from "../../src/trace-recorder.js";
 import { startFixtureServer, type FixtureRoute } from "../fixtures/server.js";
 
 let sharedBrowser: Browser | undefined;
@@ -15,7 +16,12 @@ afterAll(async () => {
 export async function setupToolPage(
   body: string,
   extraRoutes: FixtureRoute[] = [],
-  options: { safety?: BrowserSafetyPolicy } = {},
+  options: {
+    safety?: BrowserSafetyPolicy;
+    traceRecorder?: TraceRecorder;
+    captureStepScreenshots?: boolean;
+    liveFrame?: () => { data: Buffer; seq?: number; timestamp?: number } | null;
+  } = {},
 ) {
   const server = await startFixtureServer([
     { path: "/", body },
@@ -44,6 +50,9 @@ export async function setupToolPage(
     screenshots: [],
     finishState: { status: null, reason: null },
     safety: options.safety,
+    traceRecorder: options.traceRecorder,
+    captureStepScreenshots: options.captureStepScreenshots,
+    liveFrame: options.liveFrame,
   });
   await tool(tools, "browser_goto").execute({ url: server.url });
 

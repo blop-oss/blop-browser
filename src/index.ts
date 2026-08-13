@@ -36,6 +36,24 @@ export { BrowserSafetyError, BrowserToolError } from "./tools/safety.js";
 export { startScreencast, type Screencast, type ScreencastFrame, type ScreencastOptions } from "./screencast.js";
 
 export {
+  createTraceRecorder,
+  BROWSER_TRACE_COMMAND_KINDS,
+  formatTraceTimeline,
+  isStateChangingCommand,
+  redactTraceInput,
+  redactTraceUrl,
+  type HarnessTraceEvent,
+  type HarnessTraceExport,
+  type TraceApproval,
+  type TraceIdentity,
+  type TraceMediaPosition,
+  type TraceRecorder,
+  type TraceRecorderOptions,
+  type TraceRecordContext,
+  type BrowserTraceCommandKind,
+} from "./trace-recorder.js";
+
+export {
   ensurePlaywrightContainer,
   startPlaywrightContainer,
   stopPlaywrightContainer,

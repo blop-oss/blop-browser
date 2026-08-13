@@ -8,6 +8,7 @@ import type {
   BrowserContentBoundary,
   ToolContentBoundary,
 } from "../types.js";
+import type { TraceRecorder } from "../trace-recorder.js";
 
 export type NativeModelImage = {
   /** Data URL kept out of the textual tool result and attached to the next
@@ -110,6 +111,9 @@ export type BrowserToolContext = {
   criticalPoints: HarnessCriticalPoint[];
   finishState: FinishState;
   baseUrl?: string;
+  /** Optional bounded action trace sink. The central record path emits every
+   * successful and failed tool action to it in completion order. */
+  traceRecorder?: TraceRecorder;
   /** Optional host-owned enforcement for browser interactions. */
   safety?: BrowserSafetyPolicy;
   /**
@@ -133,7 +137,7 @@ export type BrowserToolContext = {
    * the first repaint or on non-chromium browsers, where we fall back to a
    * direct screenshot.
    */
-  liveFrame?: () => { data: Buffer } | null;
+  liveFrame?: () => { data: Buffer; seq?: number; timestamp?: number } | null;
   /**
    * All open pages/tabs in this browser context, including popups opened by
    * the app via window.open or target=_blank. The first entry is the main

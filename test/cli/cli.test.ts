@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { shouldRunFirstConfig } from "../../src/cli.js";
+import { MAX_PERSISTED_TRACE_BYTES } from "../../src/cli/trace-store.js";
 import { startFixtureServer, type FixtureServer } from "../fixtures/server.js";
 
 type CliResult = {
@@ -596,6 +597,137 @@ describe("blop-browser CLI", () => {
     expect(status.result?.safetyMode).toBe("read-only");
   }, 30_000);
 
+  test("exports a redacted ordered trace after the persistent daemon closes", async () => {
+    const password = "cli-password-do-not-log";
+    server = await startFixtureServer([{
+      path: "/login",
+      body: `<main>
+        <label>Password <input type="password" /></label>
+        <button onclick="document.body.dataset.saved='yes'">Sign in</button>
+      </main>`,
+    }]);
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-trace-"));
+    session = `trace-${process.pid}`;
+
+    await runCli([
+      "--session",
+      session,
+      "open",
+      new URL(`/login?access_token=${password}#private`, server.url).href,
+      "--json",
+    ], runtimeDir, { BLOP_BROWSER_AGENT_ID: "test-agent" });
+    const snapshot = await runCli(["--session", session, "snapshot", "--json"], runtimeDir);
+    const observed = JSON.parse(snapshot.result?.content) as { semanticSnapshot: string };
+    const passwordRef = observed.semanticSnapshot.match(/\[((?:f\d+)?e\d+|x\d+)\] textbox "Password"/)?.[1];
+    const buttonRef = observed.semanticSnapshot.match(/\[((?:f\d+)?e\d+|x\d+)\] button "Sign in"/)?.[1];
+    expect(passwordRef).toBeTruthy();
+    expect(buttonRef).toBeTruthy();
+
+    await runCli(["--session", session, "type", passwordRef!, password, "--json"], runtimeDir);
+    await runCli(["--session", session, "click", buttonRef!, "--json"], runtimeDir);
+    const failed = await runCliResult([
+      "--session",
+      session,
+      "call",
+      "browser_click",
+      "--input",
+      JSON.stringify({ target: { role: "button", name: "Missing" }, timeoutMs: 50 }),
+      "--json",
+    ], runtimeDir);
+    expect(failed.exitCode).toBe(1);
+
+    const activeTrace = await runCli(["--session", session, "trace", "--json"], runtimeDir);
+    const activeCommands = activeTrace.result?.events.map((event: { command: string }) => event.command);
+    expect(activeCommands).toEqual([
+      "browser_session_start",
+      "browser_goto",
+      "browser_snapshot",
+      "browser_type",
+      "browser_click",
+      "browser_click",
+    ]);
+    expect(activeTrace.result?.identity).toEqual({ sessionId: session, agentId: "test-agent" });
+    expect(activeTrace.result?.events[0]).toEqual(expect.objectContaining({
+      kind: "lifecycle",
+      stateChanging: true,
+      input: expect.objectContaining({
+        connection: "launch",
+        profileMode: "persistent",
+        existingProfile: false,
+      }),
+    }));
+    expect(JSON.stringify(activeTrace)).not.toContain(password);
+
+    const closed = await runCli(["--session", session, "close", "--json"], runtimeDir);
+    expect(closed.result?.traceEvent).toEqual(expect.objectContaining({
+      command: "browser_session_close",
+      kind: "lifecycle",
+    }));
+    const offlineTrace = await runCli(["--session", session, "trace", "--json"], runtimeDir);
+    expect(offlineTrace.result?.events.map((event: { command: string }) => event.command)).toEqual([
+      ...activeCommands,
+      "browser_session_close",
+    ]);
+    expect(JSON.stringify(offlineTrace)).not.toContain(password);
+
+    const text = await runCliText(["--session", session, "trace"], runtimeDir);
+    expect(text.exitCode).toBe(0);
+    expect(text.stdout).toContain("Browser trace");
+    expect(text.stdout).toContain("browser_session_close");
+    expect(text.stdout).not.toContain(password);
+
+    const artifactDirectory = join(runtimeDir, `${session}-artifacts`);
+    const [jsonMode, textMode] = await Promise.all([
+      Bun.file(join(artifactDirectory, "browser-trace.json")).stat().then((stat) => stat.mode & 0o777),
+      Bun.file(join(artifactDirectory, "browser-trace.txt")).stat().then((stat) => stat.mode & 0o777),
+    ]);
+    expect(jsonMode).toBe(0o600);
+    expect(textMode).toBe(0o600);
+    expect((await Bun.file(join(artifactDirectory, "browser-trace.json")).stat()).size)
+      .toBeLessThanOrEqual(MAX_PERSISTED_TRACE_BYTES);
+    expect((await Bun.file(join(artifactDirectory, "browser-trace.txt")).stat()).size)
+      .toBeLessThanOrEqual(MAX_PERSISTED_TRACE_BYTES);
+
+    await runCli(["--session", session, "snapshot", "--json"], runtimeDir);
+    const resumedTrace = await runCli(["--session", session, "trace", "--json"], runtimeDir);
+    expect(resumedTrace.result?.events.map((event: { command: string }) => event.command)).toEqual([
+      ...activeCommands,
+      "browser_session_close",
+      "browser_session_start",
+      "browser_snapshot",
+    ]);
+    expect(resumedTrace.result?.events.map((event: { sequence: number }) => event.sequence))
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+    const destroyed = await runCli(["--session", session, "destroy", "--json"], runtimeDir);
+    expect(destroyed.result?.destroyed).toBe(true);
+    expect(destroyed.result?.traceEvent).toEqual(expect.objectContaining({
+      command: "browser_session_destroy",
+      sequence: 10,
+    }));
+    expect(await pathExists(artifactDirectory)).toBe(false);
+    const empty = await runCli(["--session", session, "trace", "--json"], runtimeDir);
+    expect(empty.result?.events).toEqual([]);
+  }, 30_000);
+
+  test("rejects oversized or malformed offline trace artifacts", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-trace-invalid-"));
+    session = `trace-invalid-${process.pid}`;
+    const artifactDirectory = join(runtimeDir, `${session}-artifacts`);
+    const tracePath = join(artifactDirectory, "browser-trace.json");
+    await mkdir(artifactDirectory, { recursive: true });
+
+    await writeFile(tracePath, "x".repeat(MAX_PERSISTED_TRACE_BYTES + 1));
+    const oversized = await runCliResult(["--session", session, "trace", "--json"], runtimeDir);
+    expect(oversized.exitCode).toBe(1);
+    expect(oversized.response.error?.message).toContain("file exceeds the bounded trace size");
+
+    await writeFile(tracePath, JSON.stringify({ version: 1, events: [{ result: "unbounded contract" }] }));
+    const malformed = await runCliResult(["--session", session, "trace", "--json"], runtimeDir);
+    expect(malformed.exitCode).toBe(1);
+    expect(malformed.response.error?.message).toContain("top-level contract is invalid");
+  });
+
   test("connects to Chrome over CDP without closing the external browser", async () => {
     server = await startFixtureServer([
       { path: "/", body: "<main><h1>External Chrome</h1></main>" },
@@ -788,6 +920,33 @@ async function runCliResult(
     exitCode,
     response: JSON.parse(stdout) as CliResult,
   };
+}
+
+async function runCliText(
+  args: string[],
+  stateDir: string,
+  environment: Record<string, string> = {},
+) {
+  const childEnvironment = {
+    ...globalThis.process.env,
+    BLOP_BROWSER_CONFIG_PATH: join(stateDir, "browser-config.json"),
+    BLOP_BROWSER_RUNTIME_DIR: stateDir,
+    BLOP_BROWSER_HEADLESS: "1",
+    BLOP_BROWSER_IDLE_TIMEOUT_MS: "60000",
+    ...environment,
+  };
+  const process = Bun.spawn(["bun", "src/cli.ts", ...args], {
+    cwd: new URL("../..", import.meta.url).pathname,
+    env: childEnvironment,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ]);
+  return { stdout, stderr, exitCode };
 }
 
 function currentOwner() {

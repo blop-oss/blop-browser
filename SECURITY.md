@@ -169,6 +169,33 @@ enforce domain/network boundaries outside this package. No browser-tool
 contract can make an everyday authenticated profile safe for arbitrary hostile
 pages.
 
+## Trace privacy and retention
+
+Action traces are security evidence and sensitive application data. They can
+contain bounded page-derived output, visited origins, target labels, command
+timing, approval decisions, artifact paths, and workflow intent. Their
+`contentBoundary` records provenance; it does not make browser-derived content
+safe or truthful.
+
+The recorder redacts typed text, common credential fields and patterns, file
+paths, URL credentials, queries, fragments, and secret-labelled path segments.
+It applies the same bounded redaction to errors, approval reasons, identities,
+and media paths. This mitigation cannot recognize every secret in arbitrary
+page output or prove that an export contains no personal or confidential data.
+Screenshots remain visual browser data. Review and minimize trace exports before
+sharing them, and follow the [acceptable-use policy](ACCEPTABLE_USE.md) when
+collecting or retaining data.
+
+Standalone CLI traces are capped at 100 retained events and 768 KiB per JSON or
+human export by default. The CLI stores the latest complete exports with mode
+`0600` in the session's private artifact directory. Persistent sessions retain
+them after close, idle shutdown, or a crash until `destroy` removes the managed
+artifacts. Disposable sessions remove them on close or idle shutdown. Attached
+CDP sessions use a managed artifact directory; destroying that directory does
+not delete the external Chrome profile. See the
+[action trace documentation](docs/action-traces.md) for the event contract and
+exact lifecycle behavior.
+
 ## Coordinated disclosure
 
 The security triage maintainer and reporter will coordinate a disclosure date
