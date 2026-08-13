@@ -142,6 +142,12 @@ bot protection will be avoided. If a site presents a CAPTCHA, rate limit, or
 access denial, stop instead of switching browsers, fingerprints, accounts, or
 network routes to bypass it.
 
+For reproducible local evidence about backend-observable signals, follow the
+[local backend signal protocol](https://github.com/blop-oss/blop-browser/blob/master/benchmarks/detection/README.md).
+The protocol uses a controlled loopback fixture and doesn't score or promise
+non-detectability. An installed skill is standalone, so keep this canonical URL
+instead of replacing it with a repository-relative link.
+
 Before installing or switching to Camoufox, tell the user that it downloads a
 third-party browser and uses a different browser fingerprint. Ask the user if
 they want to use it. Don't install or select it without their approval.

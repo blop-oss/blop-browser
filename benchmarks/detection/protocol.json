@@ -1,0 +1,82 @@
+{
+  "protocol_version": "1.0.0",
+  "name": "Blop Browser local backend signal protocol",
+  "purpose": "Record bounded browser-observable signals from fresh Chromium and Camoufox sessions against a controlled loopback fixture.",
+  "repetitions": 3,
+  "target": {
+    "kind": "loopback-fixture",
+    "host": "127.0.0.1",
+    "path": "/signals"
+  },
+  "backends": [
+    {
+      "id": "chromium-headless",
+      "engine": "chromium",
+      "launcher": "playwright.chromium",
+      "configuration": {
+        "headless": true,
+        "browser_channel": "playwright-bundled",
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone_id": "UTC",
+        "color_scheme": "light",
+        "reduced_motion": "reduce",
+        "accept_downloads": true,
+        "bypass_csp": false,
+        "profile": "fresh-temporary-per-attempt"
+      }
+    },
+    {
+      "id": "camoufox-headless",
+      "engine": "firefox",
+      "launcher": "camoufox-js.Camoufox",
+      "configuration": {
+        "headless": true,
+        "binary_source": "installed-camoufox-package-cache",
+        "browser_binary_version": "record-actual-installed",
+        "os": "linux",
+        "locale": ["en-US"],
+        "window": [1280, 720],
+        "humanize": false,
+        "enable_cache": false,
+        "accept_downloads": true,
+        "bypass_csp": false,
+        "viewport": null,
+        "profile": "fresh-temporary-per-attempt",
+        "fingerprint_generation": "camoufox-default-unseeded-per-attempt"
+      }
+    }
+  ],
+  "signal_contract": [
+    "webdriver",
+    "user_agent",
+    "user_agent_contains_headless",
+    "browser_family",
+    "platform",
+    "language",
+    "languages",
+    "timezone",
+    "hardware_concurrency",
+    "device_memory",
+    "plugin_count",
+    "mime_type_count",
+    "screen",
+    "window",
+    "webgl"
+  ],
+  "limitations": [
+    "The loopback fixture records browser-observable signals; it does not reproduce a third-party site's detection logic, network reputation, TLS fingerprint, account history, or risk model.",
+    "The pinned camoufox-js launch API does not expose a seed. Its generated fingerprint can vary even when the recorded constraints and actual versions are identical.",
+    "A collected result means the fixture loaded and returned valid bounded evidence. It is not a pass against bot detection.",
+    "A local result cannot establish anonymity, non-detectability, or permission to automate any site."
+  ],
+  "prohibited_interpretations": [
+    "detection score",
+    "undetectable browser",
+    "bot-protection bypass",
+    "site authorization"
+  ]
+}

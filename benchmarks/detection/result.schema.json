@@ -1,0 +1,472 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/blop-oss/blop-browser/blob/master/benchmarks/detection/result.schema.json",
+  "title": "Blop Browser local backend signal report",
+  "description": "Raw per-attempt evidence from the loopback-only backend signal protocol. This report is not a detection score or bypass claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "source",
+    "environment",
+    "authorization",
+    "protocol",
+    "attempts",
+    "summary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "maxLength": 64
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_commit",
+        "working_tree_dirty",
+        "protocol_sha256",
+        "harness_version",
+        "playwright_version",
+        "camoufox_js_version"
+      ],
+      "properties": {
+        "repository_commit": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "working_tree_dirty": { "type": ["boolean", "null"] },
+        "protocol_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "harness_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "playwright_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "camoufox_js_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_version", "platform", "architecture", "hostname"],
+      "properties": {
+        "node_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "platform": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "architecture": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "hostname": { "const": "redacted" }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_scope", "third_party_sites", "statement"],
+      "properties": {
+        "target_scope": { "const": "loopback-only" },
+        "third_party_sites": { "const": false },
+        "statement": {
+          "const": "This run loaded only the protocol's controlled 127.0.0.1 fixture."
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "name",
+        "repetitions",
+        "target",
+        "selected_backends"
+      ],
+      "properties": {
+        "protocol_version": { "const": "1.0.0" },
+        "name": { "const": "Blop Browser local backend signal protocol" },
+        "repetitions": { "const": 3 },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "host", "path"],
+          "properties": {
+            "kind": { "const": "loopback-fixture" },
+            "host": { "const": "127.0.0.1" },
+            "path": { "const": "/signals" }
+          }
+        },
+        "selected_backends": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["chromium-headless", "camoufox-headless"]
+          }
+        }
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "backend_id",
+          "repetition",
+          "started_at",
+          "duration_ms",
+          "outcome",
+          "browser",
+          "configuration",
+          "signals"
+        ],
+        "properties": {
+          "backend_id": {
+            "enum": ["chromium-headless", "camoufox-headless"]
+          },
+          "repetition": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "maxLength": 64
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 600000
+          },
+          "outcome": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "failure_class", "reason"],
+            "properties": {
+              "status": { "enum": ["collected", "failed"] },
+              "failure_class": {
+                "enum": [null, "environment", "harness"]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            }
+          },
+          "browser": {
+            "anyOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "version", "executable_source"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "executable_source": {
+                    "enum": [
+                      "playwright-bundled",
+                      "installed-camoufox-package-cache"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "configuration": {
+            "oneOf": [
+              { "$ref": "#/$defs/chromiumConfiguration" },
+              { "$ref": "#/$defs/camoufoxConfiguration" }
+            ]
+          },
+          "signals": {
+            "oneOf": [{ "$ref": "#/$defs/signals" }, { "type": "null" }]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "collected", "failed", "backends"],
+      "properties": {
+        "requested": { "type": "integer", "minimum": 3, "maximum": 6 },
+        "collected": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "failed": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "backends": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "backend_id",
+              "requested",
+              "collected",
+              "failed",
+              "failures",
+              "varying_signal_paths"
+            ],
+            "properties": {
+              "backend_id": {
+                "enum": ["chromium-headless", "camoufox-headless"]
+              },
+              "requested": { "const": 3 },
+              "collected": { "type": "integer", "minimum": 0, "maximum": 3 },
+              "failed": { "type": "integer", "minimum": 0, "maximum": 3 },
+              "failures": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["repetition", "failure_class", "reason"],
+                  "properties": {
+                    "repetition": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 3
+                    },
+                    "failure_class": {
+                      "enum": ["environment", "harness"]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000
+                    }
+                  }
+                }
+              },
+              "varying_signal_paths": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 16,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+    }
+  },
+  "$defs": {
+    "chromiumConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "headless",
+        "browser_channel",
+        "viewport",
+        "locale",
+        "timezone_id",
+        "color_scheme",
+        "reduced_motion",
+        "accept_downloads",
+        "bypass_csp",
+        "profile"
+      ],
+      "properties": {
+        "headless": { "const": true },
+        "browser_channel": { "const": "playwright-bundled" },
+        "viewport": {
+          "const": { "width": 1280, "height": 720 }
+        },
+        "locale": { "const": "en-US" },
+        "timezone_id": { "const": "UTC" },
+        "color_scheme": { "const": "light" },
+        "reduced_motion": { "const": "reduce" },
+        "accept_downloads": { "const": true },
+        "bypass_csp": { "const": false },
+        "profile": { "const": "fresh-temporary-per-attempt" }
+      }
+    },
+    "camoufoxConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "headless",
+        "binary_source",
+        "browser_binary_version",
+        "os",
+        "locale",
+        "window",
+        "humanize",
+        "enable_cache",
+        "accept_downloads",
+        "bypass_csp",
+        "viewport",
+        "profile",
+        "fingerprint_generation"
+      ],
+      "properties": {
+        "headless": { "const": true },
+        "binary_source": {
+          "const": "installed-camoufox-package-cache"
+        },
+        "browser_binary_version": { "const": "record-actual-installed" },
+        "os": { "const": "linux" },
+        "locale": { "const": ["en-US"] },
+        "window": { "const": [1280, 720] },
+        "humanize": { "const": false },
+        "enable_cache": { "const": false },
+        "accept_downloads": { "const": true },
+        "bypass_csp": { "const": false },
+        "viewport": { "type": "null" },
+        "profile": { "const": "fresh-temporary-per-attempt" },
+        "fingerprint_generation": {
+          "const": "camoufox-default-unseeded-per-attempt"
+        }
+      }
+    },
+    "signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "webdriver",
+        "user_agent",
+        "user_agent_contains_headless",
+        "browser_family",
+        "platform",
+        "language",
+        "languages",
+        "timezone",
+        "hardware_concurrency",
+        "device_memory",
+        "plugin_count",
+        "mime_type_count",
+        "screen",
+        "window",
+        "webgl"
+      ],
+      "properties": {
+        "webdriver": { "type": ["boolean", "null"] },
+        "user_agent": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "user_agent_contains_headless": {
+          "type": ["boolean", "null"]
+        },
+        "browser_family": { "enum": ["chromium", "firefox"] },
+        "platform": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "language": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "languages": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        },
+        "timezone": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "hardware_concurrency": { "$ref": "#/$defs/boundedNumber" },
+        "device_memory": { "$ref": "#/$defs/boundedNumber" },
+        "plugin_count": { "$ref": "#/$defs/boundedNumber" },
+        "mime_type_count": { "$ref": "#/$defs/boundedNumber" },
+        "screen": { "$ref": "#/$defs/screen" },
+        "window": { "$ref": "#/$defs/window" },
+        "webgl": { "$ref": "#/$defs/webgl" }
+      }
+    },
+    "boundedNumber": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "screen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "avail_width",
+        "avail_height",
+        "color_depth",
+        "pixel_depth"
+      ],
+      "properties": {
+        "width": { "$ref": "#/$defs/boundedNumber" },
+        "height": { "$ref": "#/$defs/boundedNumber" },
+        "avail_width": { "$ref": "#/$defs/boundedNumber" },
+        "avail_height": { "$ref": "#/$defs/boundedNumber" },
+        "color_depth": { "$ref": "#/$defs/boundedNumber" },
+        "pixel_depth": { "$ref": "#/$defs/boundedNumber" }
+      }
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inner_width",
+        "inner_height",
+        "outer_width",
+        "outer_height",
+        "device_pixel_ratio"
+      ],
+      "properties": {
+        "inner_width": { "$ref": "#/$defs/boundedNumber" },
+        "inner_height": { "$ref": "#/$defs/boundedNumber" },
+        "outer_width": { "$ref": "#/$defs/boundedNumber" },
+        "outer_height": { "$ref": "#/$defs/boundedNumber" },
+        "device_pixel_ratio": { "$ref": "#/$defs/boundedNumber" }
+      }
+    },
+    "webgl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available", "vendor", "renderer"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "vendor": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "renderer": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    }
+  }
+}

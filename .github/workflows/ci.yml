@@ -35,6 +35,9 @@ jobs:
       - name: Check comparison evidence
         run: bun run check:comparison
 
+      - name: Check positioning evidence
+        run: bun run check:positioning
+
       - name: Check acceptable-use documentation
         run: bun run check:acceptable-use
 
@@ -52,6 +55,9 @@ jobs:
 
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium
+
+      - name: Run local positioning proof
+        run: bun run demo:positioning
 
       - name: Tests (browser)
         run: |
