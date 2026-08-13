@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/blop-oss/browser-harness/blob/master/benchmarks/result.schema.json",
+  "$id": "https://github.com/blop-oss/blop-browser/blob/master/benchmarks/result.schema.json",
   "title": "Blop Browser comparison benchmark record",
   "description": "One reproducible run record. Unknown measurements use null and must be explained in measurement_notes.",
   "type": "object",

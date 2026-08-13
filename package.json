@@ -1,6 +1,6 @@
 {
   "name": "@blopai/browser-harness",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Blop Browser: browser infrastructure for coding agents with controlled tools, persistent sessions, CDP reuse, and optional Camoufox.",
   "license": "MIT",
   "type": "module",
@@ -49,11 +49,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/blop-oss/browser-harness.git"
+    "url": "git+https://github.com/blop-oss/blop-browser.git"
   },
-  "homepage": "https://github.com/blop-oss/browser-harness#readme",
+  "homepage": "https://github.com/blop-oss/blop-browser#readme",
   "bugs": {
-    "url": "https://github.com/blop-oss/browser-harness/issues"
+    "url": "https://github.com/blop-oss/blop-browser/issues"
   },
   "scripts": {
     "build": "tsc",

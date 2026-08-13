@@ -2,23 +2,23 @@
 
 This checklist separates source-controlled launch work from GitHub and npm
 settings that require a maintainer. Complete it immediately before the public
-announcement, then recheck redirects and package links after the repository
-rename.
+announcement. The repository rename was completed on 2026-08-13; recheck its
+redirects and package links before launch.
 
 ## Repository identity
 
-The source already presents the product as Blop Browser while preserving its
-published compatibility names. A maintainer must finish the remote settings.
+The source and repository present the product as Blop Browser while preserving
+its published compatibility names. A maintainer must finish the remaining
+remote settings.
 
-- [ ] Rename `blop-oss/browser-harness` to `blop-oss/blop-browser` in GitHub.
-- [ ] Confirm GitHub redirects the previous clone, issue, workflow badge, and
+- [x] Rename `blop-oss/browser-harness` to `blop-oss/blop-browser` in GitHub.
+- [x] Confirm GitHub redirects the previous clone, issue, workflow badge, and
       documentation URLs.
-- [ ] Keep the npm package name `@blopai/browser-harness` and CLI command
+- [x] Keep the npm package name `@blopai/browser-harness` and CLI command
       `blop-browser` unchanged.
-- [ ] After the rename, update `package.json`, workflow release instructions,
-      badges, and source links in one reviewed pull request only if redirect-free
-      canonical links are desired.
-- [ ] Set the GitHub description to “Browser infrastructure for coding agents.”
+- [x] Update `package.json`, badges, install instructions, and source links to
+      the redirect-free canonical repository URL.
+- [x] Set the GitHub description to “Browser infrastructure for coding agents.”
 - [ ] Add the chosen homepage or documentation URL to the repository details.
 
 ## Discoverability

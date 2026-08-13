@@ -17,7 +17,7 @@ blop-browser open https://example.com
 blop-browser snapshot
 ```
 
-[![CI](https://github.com/blop-oss/browser-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/blop-oss/browser-harness/actions/workflows/ci.yml)
+[![CI](https://github.com/blop-oss/blop-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/blop-oss/blop-browser/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@blopai/browser-harness)](https://www.npmjs.com/package/@blopai/browser-harness)
 [![npm downloads](https://img.shields.io/npm/dm/@blopai/browser-harness)](https://www.npmjs.com/package/@blopai/browser-harness)
 [![Node.js 22+](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](package.json)
@@ -73,7 +73,7 @@ npx playwright install chromium
 Install the optional agent skill with Vercel's skills CLI:
 
 ```bash
-npx skills add blop-oss/browser-harness --skill browser-harness
+npx skills add blop-oss/blop-browser --skill browser-harness
 ```
 
 Add `-g` for a global skill install, or use `-a opencode`, `-a claude-code`, or
@@ -88,7 +88,7 @@ Paste this prompt into Codex, Claude Code, OpenCode, or another coding agent:
 ```text
 Install the Blop Browser skill and set up the blop-browser CLI:
 
-1. Run: npx skills add blop-oss/browser-harness --skill browser-harness -g
+1. Run: npx skills add blop-oss/blop-browser --skill browser-harness -g
 2. Run: npm install --global @blopai/browser-harness
 3. Run: blop-browser doctor --json
 4. Read the doctor output. If configuration.mode is null, ask me how I want to
@@ -318,6 +318,6 @@ in the community.
 - [Security policy](SECURITY.md)
 - [MIT license](LICENSE)
 
-The [public launch checklist](docs/launch-checklist.md) records GitHub settings
-that maintainers must complete manually, including the repository rename to
-`blop-browser`. Source changes do not rename the remote repository.
+The [public launch checklist](docs/launch-checklist.md) records remaining GitHub
+settings that maintainers must complete manually. The canonical repository is
+`blop-oss/blop-browser`; GitHub redirects its previous `browser-harness` URL.

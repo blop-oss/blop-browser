@@ -29,7 +29,7 @@ Chromium installation. Docker is optional and only required for container
 session tests.
 
 ```bash
-git clone https://github.com/blop-oss/browser-harness.git
+git clone https://github.com/blop-oss/blop-browser.git
 cd browser-harness
 bun install --frozen-lockfile
 bunx playwright install chromium

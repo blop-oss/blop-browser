@@ -20,7 +20,7 @@ reporting a problem that only affects an older version.
 ## Report a vulnerability
 
 Use GitHub's
-[private vulnerability report](https://github.com/blop-oss/browser-harness/security/advisories/new).
+[private vulnerability report](https://github.com/blop-oss/blop-browser/security/advisories/new).
 Don't open a public issue for a suspected vulnerability.
 
 Include enough information to reproduce and assess the problem:
