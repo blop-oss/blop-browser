@@ -1,4 +1,4 @@
-import type { HarnessAction } from "./types.js";
+import type { HarnessAction, ToolContentBoundary } from "./types.js";
 
 const DEFAULT_MAX_EVENTS = 100;
 const MIN_MAX_EVENTS = 1;
@@ -7,13 +7,14 @@ const DEFAULT_MAX_STRING_LENGTH = 1_000;
 const MIN_MAX_STRING_LENGTH = 64;
 const MAX_MAX_STRING_LENGTH = 8_000;
 const DEFAULT_MAX_EXPORT_BYTES = 768 * 1024;
-const MIN_MAX_EXPORT_BYTES = 16 * 1024;
+const MIN_MAX_EXPORT_BYTES = 1_024;
 const MAX_MAX_EXPORT_BYTES = 4 * 1024 * 1024;
 const MAX_INPUT_FIELDS = 20;
 const MAX_ARRAY_ITEMS = 20;
 const MAX_INPUT_DEPTH = 4;
 const MAX_INPUT_NODES = 80;
 const MAX_TARGET_REFS = 20;
+const MAX_IDENTITY_LENGTH = 160;
 
 const STATE_CHANGING_COMMANDS = new Set([
   "browser_goto",
@@ -40,13 +41,16 @@ const STATE_CHANGING_COMMANDS = new Set([
   "browser_screenshot",
   "browser_select_page",
   "browser_close_page",
-  "browser_run_steps",
   "record_critical_point",
   "finish_test",
+  "browser_session_start",
+  "browser_session_close",
+  "browser_session_destroy",
 ]);
 
 const SENSITIVE_KEY_PATTERN = /(?:password|passwd|passcode|secret|token|api[_-]?key|authorization|cookie|credential|session|credit|card|cvv|cvc|ssn|email)/i;
 const VALUE_KEY_PATTERN = /^(?:value|values|path|paths|file|files)$/i;
+const SENSITIVE_PATH_KEY_PATTERN = /^(?:password|passwd|passcode|secret|token|api[_-]?key|authorization|cookie|credential|session)$/i;
 
 /** Framework-neutral metadata that identifies where a browser trace came from. */
 export type TraceIdentity = {
@@ -74,6 +78,7 @@ export type TraceMediaPosition = {
 
 export type HarnessTraceEvent = {
   sequence: number;
+  kind: "action" | "batch" | "lifecycle";
   timestamp: string;
   completedAt: string;
   durationMs: number;
@@ -87,6 +92,7 @@ export type HarnessTraceEvent = {
     after: string;
   };
   status: "succeeded" | "failed";
+  contentBoundary?: ToolContentBoundary;
   result?: string;
   error?: string;
   approval?: TraceApproval;
@@ -164,28 +170,40 @@ export function createTraceRecorder(options: TraceRecorderOptions = {}): TraceRe
       const sensitiveValues = collectSensitiveStrings(action.name, action.input);
       const failed = typeof action.metadata?.error === "string";
       const output = redactTraceText(action.output, sensitiveValues, maxStringLength);
+      const approval = sanitizeApproval(
+        context.approval ?? approvalFromMetadata(action.metadata, maxStringLength),
+        sensitiveValues,
+        maxStringLength,
+      );
+      const media = sanitizeMedia(
+        context.media ?? mediaFromMetadata(action.metadata, maxStringLength),
+        sensitiveValues,
+        maxStringLength,
+      );
       const event: HarnessTraceEvent = {
         sequence: nextSequence,
+        kind: action.name === "browser_run_steps"
+          ? "batch"
+          : action.name.startsWith("browser_session_") ? "lifecycle" : "action",
         timestamp: validTimestamp(context.startedAt) ?? validTimestamp(action.timestamp) ?? new Date().toISOString(),
         completedAt: validTimestamp(context.completedAt) ?? validTimestamp(action.timestamp) ?? new Date().toISOString(),
         durationMs: boundedDuration(action.durationMs),
         ...(identity ? { identity } : {}),
         stateChanging: context.stateChanging ?? isStateChangingCommand(action.name),
-        command: boundedString(action.name, maxStringLength),
-        input: redactTraceInput(action.name, action.input, maxStringLength),
+        command: redactTraceText(action.name, sensitiveValues, maxStringLength),
+        input: redactTraceInput(action.name, action.input, maxStringLength, sensitiveValues),
         targetRefs: collectTargetRefs(action.input),
         url: {
-          before: redactTraceUrl(context.urlBefore ?? "", maxStringLength),
-          after: redactTraceUrl(context.urlAfter ?? context.urlBefore ?? "", maxStringLength),
+          before: redactTraceUrl(context.urlBefore ?? "", maxStringLength, sensitiveValues),
+          after: redactTraceUrl(context.urlAfter ?? context.urlBefore ?? "", maxStringLength, sensitiveValues),
         },
         status: failed ? "failed" : "succeeded",
+        ...(action.outputBoundary
+          ? { contentBoundary: sanitizeContentBoundary(action.outputBoundary, sensitiveValues, maxStringLength) }
+          : {}),
         ...(failed ? { error: output } : { result: output }),
-        ...(context.approval ?? approvalFromMetadata(action.metadata, maxStringLength)
-          ? { approval: immutableCopy(context.approval ?? approvalFromMetadata(action.metadata, maxStringLength)!) }
-          : {}),
-        ...(context.media ?? mediaFromMetadata(action.metadata, maxStringLength)
-          ? { media: immutableCopy(context.media ?? mediaFromMetadata(action.metadata, maxStringLength)!) }
-          : {}),
+        ...(approval ? { approval } : {}),
+        ...(media ? { media } : {}),
       };
       nextSequence += 1;
       const immutableEvent = immutableCopy(event);
@@ -198,8 +216,14 @@ export function createTraceRecorder(options: TraceRecorderOptions = {}): TraceRe
     },
     events: () => immutableCopy(storedEvents),
     snapshot,
-    timeline: () => formatTraceTimeline(snapshot(), maxStringLength),
-    json: (pretty = false) => JSON.stringify(snapshot(), null, pretty ? 2 : undefined),
+    timeline: () => formatTraceTimeline(snapshot(), maxStringLength, maxExportBytes),
+    json: (pretty = false) => {
+      const exported = snapshot();
+      const compact = JSON.stringify(exported);
+      if (!pretty) return compact;
+      const formatted = JSON.stringify(exported, null, 2);
+      return Buffer.byteLength(formatted, "utf8") <= maxExportBytes ? formatted : compact;
+    },
     clear: () => {
       storedEvents.length = 0;
       omittedEvents = 0;
@@ -215,6 +239,7 @@ export function isStateChangingCommand(command: string) {
 export function formatTraceTimeline(
   trace: HarnessTraceExport,
   maxStringLength = DEFAULT_MAX_STRING_LENGTH,
+  maxBytes = DEFAULT_MAX_EXPORT_BYTES,
 ) {
   const identity = [
     trace.identity?.sessionId ? `session=${trace.identity.sessionId}` : "",
@@ -222,11 +247,11 @@ export function formatTraceTimeline(
   ].filter(Boolean).join(" ");
   const header = `Browser trace${identity ? ` (${identity})` : ""}: ${trace.events.length} event(s)`
     + (trace.omittedEvents ? `, ${trace.omittedEvents} older event(s) omitted` : "");
-  if (trace.events.length === 0) return `${header}.`;
+  if (trace.events.length === 0) return boundUtf8(`${header}.`, maxBytes);
 
   const lines = trace.events.map((event) => {
     const status = event.status === "succeeded" ? "OK" : "ERROR";
-    const mutation = event.stateChanging ? "write" : "read";
+    const operation = event.kind === "batch" ? "batch" : event.stateChanging ? "write" : "read";
     const navigation = event.url.before !== event.url.after
       ? ` ${event.url.before || "<blank>"} -> ${event.url.after || "<blank>"}`
       : event.url.after ? ` ${event.url.after}` : "";
@@ -239,32 +264,51 @@ export function formatTraceTimeline(
       event.media?.screencast ? `frame=${event.media.screencast.frame}` : "",
     ].filter(Boolean).join(" ");
     const outcome = boundedString(event.error ?? event.result ?? "", Math.min(maxStringLength, 300));
-    return `${String(event.sequence).padStart(4, "0")} ${event.timestamp} ${status} [${mutation}] ${event.command}`
+    return `${String(event.sequence).padStart(4, "0")} ${event.timestamp} ${status} [${operation}] ${event.command}`
       + `${navigation}${refs}${approval}${media ? ` ${media}` : ""}${outcome ? ` — ${outcome}` : ""}`;
   });
-  return `${header}\n${lines.join("\n")}`;
+  return boundUtf8(`${header}\n${lines.join("\n")}`, maxBytes);
 }
 
 export function redactTraceInput(
   command: string,
   input: Record<string, unknown>,
   maxStringLength = DEFAULT_MAX_STRING_LENGTH,
+  sensitiveValues = collectSensitiveStrings(command, input),
 ): Readonly<Record<string, unknown>> {
   const budget = { nodes: MAX_INPUT_NODES };
-  return immutableCopy(redactObject(command, input, [], maxStringLength, budget));
+  return immutableCopy(redactObject(command, input, [], maxStringLength, budget, sensitiveValues));
 }
 
-export function redactTraceUrl(value: string, maxStringLength = DEFAULT_MAX_STRING_LENGTH) {
+export function redactTraceUrl(
+  value: string,
+  maxStringLength = DEFAULT_MAX_STRING_LENGTH,
+  sensitiveValues: string[] = [],
+) {
   if (!value) return "";
   try {
     const url = new URL(value);
-    if (url.username) url.username = "[REDACTED]";
-    if (url.password) url.password = "[REDACTED]";
+    if (url.username) url.username = "REDACTED";
+    if (url.password) url.password = "REDACTED";
+    const pathSegments = url.pathname.split("/");
+    url.pathname = pathSegments.map((segment, index) => {
+      if (!segment) return segment;
+      const decoded = decodeUrlComponent(segment);
+      const previous = index > 0 ? decodeUrlComponent(pathSegments[index - 1] ?? "") : "";
+      if (SENSITIVE_PATH_KEY_PATTERN.test(previous) || containsSensitiveValue(decoded, sensitiveValues)) {
+        return "REDACTED";
+      }
+      const redacted = redactTraceText(decoded, sensitiveValues, maxStringLength);
+      return redacted === decoded ? segment : encodeURIComponent(redacted);
+    }).join("/");
     for (const key of [...url.searchParams.keys()]) url.searchParams.set(key, "[REDACTED]");
     if (url.hash) url.hash = "#[REDACTED]";
     return boundedString(url.href, maxStringLength);
   } catch {
-    return redactTraceText(value, [], maxStringLength);
+    return boundedString(
+      redactNonUrlText(value, sensitiveValues).replace(/\s+/g, " ").trim(),
+      maxStringLength,
+    );
   }
 }
 
@@ -274,13 +318,16 @@ function redactObject(
   path: string[],
   maxStringLength: number,
   budget: { nodes: number },
+  sensitiveValues: string[],
 ) {
   const entries = Object.entries(input).slice(0, MAX_INPUT_FIELDS).map(([key, value]) => {
     budget.nodes -= 1;
     if (budget.nodes < 0) return [key, "[omitted: node limit]"];
     if (shouldRedactInput(command, key, path)) return [key, redactionSummary(value)];
-    if (/url/i.test(key) && typeof value === "string") return [key, redactTraceUrl(value, maxStringLength)];
-    return [key, redactValue(command, value, [...path, key], maxStringLength, budget)];
+    if (/url/i.test(key) && typeof value === "string") {
+      return [key, redactTraceUrl(value, maxStringLength, sensitiveValues)];
+    }
+    return [key, redactValue(command, value, [...path, key], maxStringLength, budget, sensitiveValues)];
   });
   if (Object.keys(input).length > entries.length) {
     entries.push(["_omittedFields", Object.keys(input).length - entries.length]);
@@ -294,22 +341,23 @@ function redactValue(
   path: string[],
   maxStringLength: number,
   budget: { nodes: number },
+  sensitiveValues: string[],
 ): unknown {
   if (value === null || typeof value === "boolean" || typeof value === "number") return value;
-  if (typeof value === "string") return boundedString(value, maxStringLength);
+  if (typeof value === "string") return redactTraceText(value, sensitiveValues, maxStringLength);
   if (path.length >= MAX_INPUT_DEPTH) return "[omitted: depth limit]";
   if (Array.isArray(value)) {
     const values = value.slice(0, MAX_ARRAY_ITEMS).map((entry) => {
       budget.nodes -= 1;
       return budget.nodes < 0
         ? "[omitted: node limit]"
-        : redactValue(command, entry, path, maxStringLength, budget);
+        : redactValue(command, entry, path, maxStringLength, budget, sensitiveValues);
     });
     if (value.length > values.length) values.push(`[omitted ${value.length - values.length} item(s)]`);
     return values;
   }
   if (typeof value === "object") {
-    return redactObject(command, value as Record<string, unknown>, path, maxStringLength, budget);
+    return redactObject(command, value as Record<string, unknown>, path, maxStringLength, budget, sensitiveValues);
   }
   return `[${typeof value}]`;
 }
@@ -360,13 +408,106 @@ function collectTargetRefs(input: Record<string, unknown>) {
 }
 
 function redactTraceText(value: string, sensitiveValues: string[], maxStringLength: number) {
+  const redacted = redactNonUrlText(value, sensitiveValues)
+    .replace(/https?:\/\/[^\s<>"']+/gi, (url) => redactTraceUrl(url, maxStringLength, sensitiveValues));
+  return boundedString(redacted.replace(/\s+/g, " ").trim(), maxStringLength);
+}
+
+function redactNonUrlText(value: string, sensitiveValues: string[]) {
   let redacted = String(value);
   for (const sensitive of sensitiveValues) redacted = redacted.split(sensitive).join("[REDACTED]");
-  redacted = redacted
+  return redacted
     .replace(/(bearer\s+)[a-z0-9._~+/=-]+/gi, "$1[REDACTED]")
     .replace(/((?:password|passwd|passcode|secret|token|api[_-]?key|authorization|cookie|credential)\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]")
-    .replace(/https?:\/\/[^\s<>"']+/gi, (url) => redactTraceUrl(url, maxStringLength));
-  return boundedString(redacted.replace(/\s+/g, " ").trim(), maxStringLength);
+    .replace(/\b(?:eyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}|(?:sk|pk|tok|key|secret)[_-][a-z0-9_-]{12,})\b/gi, "[REDACTED]");
+}
+
+function sanitizeApproval(
+  approval: TraceApproval | undefined,
+  sensitiveValues: string[],
+  maxStringLength: number,
+): TraceApproval | undefined {
+  if (!approval) return undefined;
+  return immutableCopy({
+    status: approval.status,
+    ...(approval.policy
+      ? { policy: redactTraceText(approval.policy, sensitiveValues, maxStringLength) }
+      : {}),
+    ...(approval.category
+      ? { category: redactTraceText(approval.category, sensitiveValues, maxStringLength) }
+      : {}),
+    ...(approval.reason
+      ? { reason: redactTraceText(approval.reason, sensitiveValues, maxStringLength) }
+      : {}),
+  });
+}
+
+function sanitizeMedia(
+  media: TraceMediaPosition | undefined,
+  sensitiveValues: string[],
+  maxStringLength: number,
+): TraceMediaPosition | undefined {
+  if (!media) return undefined;
+  const screenshotPath = media.screenshot?.path
+    ? redactTracePath(media.screenshot.path, sensitiveValues, maxStringLength)
+    : undefined;
+  const frame = media.screencast && Number.isFinite(media.screencast.frame)
+    ? Math.max(0, Math.floor(media.screencast.frame))
+    : undefined;
+  if (!screenshotPath && frame === undefined) return undefined;
+  return immutableCopy({
+    ...(screenshotPath ? {
+      screenshot: {
+        path: screenshotPath,
+        ...(typeof media.screenshot?.index === "number"
+          ? { index: Math.max(0, Math.floor(media.screenshot.index)) }
+          : {}),
+      },
+    } : {}),
+    ...(frame !== undefined ? {
+      screencast: {
+        frame,
+        ...(validTimestamp(media.screencast?.timestamp)
+          ? { timestamp: validTimestamp(media.screencast?.timestamp)! }
+          : {}),
+      },
+    } : {}),
+  });
+}
+
+function sanitizeContentBoundary(
+  boundary: ToolContentBoundary,
+  sensitiveValues: string[],
+  maxStringLength: number,
+): ToolContentBoundary {
+  if (boundary.source === "browser") {
+    return immutableCopy({
+      source: "browser",
+      trust: "untrusted",
+      url: redactTraceUrl(boundary.url, maxStringLength, sensitiveValues),
+    });
+  }
+  if (boundary.source === "mixed") {
+    return immutableCopy({
+      source: "mixed",
+      trust: "untrusted",
+      browser: {
+        source: "browser",
+        trust: "untrusted",
+        url: redactTraceUrl(boundary.browser.url, maxStringLength, sensitiveValues),
+      },
+    });
+  }
+  return immutableCopy(boundary);
+}
+
+function redactTracePath(value: string, sensitiveValues: string[], maxStringLength: number) {
+  const redacted = redactTraceText(value, sensitiveValues, maxStringLength)
+    .replace(
+      /((?:password|passwd|passcode|secret|token|api[_-]?key|authorization|cookie|credential|session)[/\\])([^/\\]+)/gi,
+      "$1[REDACTED]",
+    );
+  return boundedString(redacted, maxStringLength);
 }
 
 function approvalFromMetadata(metadata: Record<string, unknown> | undefined, maxStringLength: number) {
@@ -421,9 +562,14 @@ function mediaFromMetadata(metadata: Record<string, unknown> | undefined, maxStr
 
 function normalizeIdentity(identity: TraceIdentity | undefined, maxStringLength: number) {
   if (!identity) return undefined;
+  const identityLength = Math.min(maxStringLength, MAX_IDENTITY_LENGTH);
   const normalized = {
-    ...(identity.sessionId ? { sessionId: boundedString(identity.sessionId, maxStringLength) } : {}),
-    ...(identity.agentId ? { agentId: boundedString(identity.agentId, maxStringLength) } : {}),
+    ...(identity.sessionId
+      ? { sessionId: redactTraceText(identity.sessionId, [], identityLength) }
+      : {}),
+    ...(identity.agentId
+      ? { agentId: redactTraceText(identity.agentId, [], identityLength) }
+      : {}),
   };
   return Object.keys(normalized).length ? immutableCopy(normalized) : undefined;
 }
@@ -451,6 +597,32 @@ function redactionSummary(value: unknown) {
 function boundedString(value: string, max: number) {
   const string = String(value);
   return string.length <= max ? string : `${string.slice(0, Math.max(0, max - 1))}…`;
+}
+
+function boundUtf8(value: string, maxBytes: number) {
+  const encoded = Buffer.from(value, "utf8");
+  if (encoded.byteLength <= maxBytes) return value;
+  const marker = Buffer.from("\n[trace output truncated]", "utf8");
+  if (marker.byteLength >= maxBytes) return asciiPrefix(marker, maxBytes);
+  let prefix = encoded.subarray(0, maxBytes - marker.byteLength).toString("utf8");
+  while (Buffer.byteLength(prefix, "utf8") + marker.byteLength > maxBytes) prefix = prefix.slice(0, -1);
+  return `${prefix}${marker.toString("utf8")}`;
+}
+
+function asciiPrefix(value: Buffer, maxBytes: number) {
+  return value.subarray(0, maxBytes).toString("ascii");
+}
+
+function containsSensitiveValue(value: string, sensitiveValues: string[]) {
+  return sensitiveValues.some((sensitive) => sensitive && value.includes(sensitive));
+}
+
+function decodeUrlComponent(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function boundedInteger(value: number | undefined, fallback: number, minimum: number, maximum: number) {

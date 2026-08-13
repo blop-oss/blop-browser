@@ -142,9 +142,7 @@ export async function createBrowserTools(
           timestamp,
           durationMs: elapsed(startedAt),
         };
-        options.actions.push(action);
-        options.onAction?.(action);
-        recordTrace(options.traceRecorder, action, {
+        const traceError = recordTrace(options.traceRecorder, action, {
           startedAt: traceStartedAt,
           completedAt: timestamp,
           urlBefore,
@@ -152,6 +150,9 @@ export async function createBrowserTools(
           stateChanging: isStateChangingCommand(name),
           media: traceMedia(undefined, options.liveFrame?.()),
         });
+        if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
+        options.actions.push(action);
+        options.onAction?.(action);
         throw toolError;
       }
       if (before) {
@@ -204,9 +205,7 @@ export async function createBrowserTools(
           // Page not screenshot-able right now; skip the visual for this step.
         }
       }
-      options.actions.push(action);
-      options.onAction?.(action);
-      recordTrace(options.traceRecorder, action, {
+      const traceError = recordTrace(options.traceRecorder, action, {
         startedAt: traceStartedAt,
         completedAt: action.timestamp,
         urlBefore,
@@ -215,6 +214,9 @@ export async function createBrowserTools(
         approval,
         media: traceMedia(action.metadata, options.liveFrame?.()),
       });
+      if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
+      options.actions.push(action);
+      options.onAction?.(action);
       return result;
     },
   };
@@ -299,8 +301,12 @@ function recordTrace(
   if (!recorder) return;
   try {
     recorder.record(action, context);
-  } catch {
-    // Trace export is observability, not browser control. A broken external
-    // sink must not turn a successfully dispatched action into a tool error.
+  } catch (error) {
+    // A recorder failure happens after the browser command has already run.
+    // Surface it in the normal action trail without throwing and inviting a
+    // host to retry a state-changing command.
+    const name = error instanceof Error ? error.name : typeof error;
+    const safeName = String(name).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 80) || "unknown";
+    return `Trace recorder failed (${safeName}).`;
   }
 }

@@ -3,6 +3,12 @@ import { access, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
 import { createBrowserTools } from "../create-tools.js";
+import { cliTracePaths, persistCliTrace } from "./trace-store.js";
+import {
+  createTraceRecorder,
+  type HarnessTraceEvent,
+  type HarnessTraceExport,
+} from "../trace-recorder.js";
 import {
   getBrowserSessionScope,
   type BrowserProfileMode,
@@ -27,8 +33,9 @@ export type HarnessCliRuntime = {
   listTools: () => Array<{ name: string; description: string }>;
   describeTool: (name: string) => Omit<NativeToolBridge, "execute">;
   status: () => Promise<Record<string, unknown>>;
+  trace: () => HarnessTraceExport;
   setExpiresAt: (expiresAt: string | null) => void;
-  close: () => Promise<void>;
+  close: (reason?: "close" | "destroy" | "idle") => Promise<HarnessTraceEvent | undefined>;
 };
 
 export async function createHarnessCliRuntime(
@@ -212,6 +219,28 @@ async function createRuntimeFromBrowser(
   let currentSessionScope = sessionScope;
   let closed = false;
   const safetyMode = process.env.BLOP_BROWSER_READ_ONLY === "1" ? "read-only" : "read-write";
+  const traceRecorder = createTraceRecorder({
+    identity: {
+      sessionId: session,
+      ...(process.env.BLOP_BROWSER_AGENT_ID ? { agentId: process.env.BLOP_BROWSER_AGENT_ID } : {}),
+    },
+  });
+  let tracePersistence = Promise.resolve();
+  let tracePersistenceFailures = 0;
+  let lastTracePersistenceError: string | undefined;
+  const persistTrace = async () => {
+    const json = traceRecorder.json(true);
+    const timeline = traceRecorder.timeline();
+    tracePersistence = tracePersistence
+      .catch(() => undefined)
+      .then(() => persistCliTrace(artifactDirectory, json, timeline));
+    try {
+      await tracePersistence;
+    } catch (error) {
+      tracePersistenceFailures += 1;
+      lastTracePersistenceError = safePersistenceError(error);
+    }
+  };
 
   const attachPage = (candidate: Page) => {
     if (pages.includes(candidate)) return;
@@ -251,14 +280,26 @@ async function createRuntimeFromBrowser(
     finishState,
     browserLogs,
     safety: { mode: safetyMode },
+    traceRecorder,
   });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  recordSessionEvent(traceRecorder, "browser_session_start", page, {
+    browser: browserName,
+    connection,
+    profileMode: currentSessionScope?.mode ?? "unknown",
+    existingProfile: connection === "cdp",
+  }, "Browser session started.");
+  await persistTrace();
 
   return {
     call: async (name, input) => {
       const tool = byName.get(name);
       if (!tool) throw new Error(`Unknown browser tool "${name}". Run blop-browser tools to list available tools.`);
-      return await tool.execute(input);
+      try {
+        return await tool.execute(input);
+      } finally {
+        await persistTrace();
+      }
     },
     listTools: () => tools.map(({ name, description }) => ({ name, description })),
     describeTool: (name) => {
@@ -271,27 +312,45 @@ async function createRuntimeFromBrowser(
         promptSnippet: tool.promptSnippet,
       };
     },
-    status: async () => ({
-      session,
-      browser: browserName,
-      connection,
-      cdpEndpoint: cdpEndpoint ?? null,
-      pid: process.pid,
-      url: page.url(),
-      title: await page.title().catch(() => ""),
-      pages: pages.length,
-      actions: actions.length,
-      finishState,
-      artifactDirectory,
-      sessionScope: currentSessionScope ? { ...currentSessionScope } : undefined,
-      safetyMode,
-    }),
+    status: async () => {
+      const trace = traceRecorder.snapshot();
+      return {
+        session,
+        browser: browserName,
+        connection,
+        cdpEndpoint: cdpEndpoint ?? null,
+        pid: process.pid,
+        url: page.url(),
+        title: await page.title().catch(() => ""),
+        pages: pages.length,
+        actions: actions.length,
+        traceEvents: trace.events.length,
+        traceOmittedEvents: trace.omittedEvents,
+        traceRecordingErrors: actions.filter((action) => action.metadata?.traceRecordingError).length,
+        tracePersistenceFailures,
+        lastTracePersistenceError: lastTracePersistenceError ?? null,
+        traceFiles: cliTracePaths(artifactDirectory),
+        finishState,
+        artifactDirectory,
+        sessionScope: currentSessionScope ? { ...currentSessionScope } : undefined,
+        safetyMode,
+      };
+    },
+    trace: () => traceRecorder.snapshot(),
     setExpiresAt: (expiresAt) => {
       if (currentSessionScope) currentSessionScope = { ...currentSessionScope, expiresAt };
     },
-    close: async () => {
-      if (closed) return;
+    close: async (reason = "close") => {
+      if (closed) return undefined;
       closed = true;
+      const traceEvent = recordSessionEvent(
+        traceRecorder,
+        reason === "destroy" ? "browser_session_destroy" : "browser_session_close",
+        page,
+        { reason, profileMode: currentSessionScope?.mode ?? "unknown" },
+        reason === "destroy" ? "Browser session state destroyed." : "Browser session closed.",
+      );
+      await persistTrace();
       if (ownsContext) await context.close().catch(() => undefined);
       await browser?.close().catch(() => undefined);
       await closeLauncher?.().catch(() => undefined);
@@ -302,8 +361,48 @@ async function createRuntimeFromBrowser(
           rm(currentSessionScope.artifactDirectory, { recursive: true, force: true }),
         ]);
       }
+      return traceEvent;
     },
   };
+}
+
+function recordSessionEvent(
+  recorder: ReturnType<typeof createTraceRecorder>,
+  name: "browser_session_start" | "browser_session_close" | "browser_session_destroy",
+  page: Page,
+  input: Record<string, unknown>,
+  output: string,
+) {
+  const timestamp = new Date().toISOString();
+  const url = pageUrl(page);
+  return recorder.record({
+    name,
+    input,
+    output,
+    outputBoundary: { source: "harness", trust: "trusted" },
+    timestamp,
+    durationMs: 0,
+  }, {
+    startedAt: timestamp,
+    completedAt: timestamp,
+    urlBefore: url,
+    urlAfter: url,
+    stateChanging: true,
+  });
+}
+
+function pageUrl(page: Page) {
+  try {
+    return page.url();
+  } catch {
+    return "";
+  }
+}
+
+function safePersistenceError(error: unknown) {
+  const name = error instanceof Error ? error.name : typeof error;
+  const safeName = String(name).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 80) || "unknown";
+  return `Trace persistence failed (${safeName}).`;
 }
 
 function messageOf(error: unknown) {

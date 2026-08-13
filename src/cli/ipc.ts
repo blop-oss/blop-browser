@@ -11,7 +11,14 @@ import type { BrowserActionCategory } from "../tools/types.js";
 
 const MAX_MESSAGE_BYTES = 1_048_576;
 
-export type RpcMethod = "ping" | "status" | "list_tools" | "describe_tool" | "call_tool" | "shutdown";
+export type RpcMethod =
+  | "ping"
+  | "status"
+  | "export_trace"
+  | "list_tools"
+  | "describe_tool"
+  | "call_tool"
+  | "shutdown";
 
 export type RpcRequest = {
   id: string;
