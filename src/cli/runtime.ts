@@ -3,7 +3,11 @@ import { access, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
 import { createBrowserTools } from "../create-tools.js";
-import { cliTracePaths, persistCliTrace } from "./trace-store.js";
+import {
+  cliTracePaths,
+  persistCliTrace,
+  readPersistedCliTrace,
+} from "./trace-store.js";
 import {
   createTraceRecorder,
   type HarnessTraceEvent,
@@ -51,6 +55,9 @@ export async function createHarnessCliRuntime(
     profileMode,
   });
   await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
+  const initialTrace = profileMode === "disposable"
+    ? null
+    : await readPersistedCliTrace(artifactDirectory);
   const headless = process.env.BLOP_BROWSER_HEADLESS !== "0";
   let launched: LaunchedBrowser;
   if (cdpEndpoint) launched = await connectChromeOverCdp(cdpEndpoint);
@@ -84,6 +91,7 @@ export async function createHarnessCliRuntime(
     cdpEndpoint,
     launched.closeLauncher,
     sessionScope,
+    initialTrace,
   );
 }
 
@@ -211,6 +219,7 @@ async function createRuntimeFromBrowser(
   cdpEndpoint?: string,
   closeLauncher?: () => Promise<void>,
   sessionScope?: BrowserSessionScope,
+  initialTrace?: HarnessTraceExport | null,
 ): Promise<HarnessCliRuntime> {
   const actions: HarnessAction[] = [];
   const browserLogs: HarnessBrowserLog[] = [];
@@ -224,6 +233,7 @@ async function createRuntimeFromBrowser(
       sessionId: session,
       ...(process.env.BLOP_BROWSER_AGENT_ID ? { agentId: process.env.BLOP_BROWSER_AGENT_ID } : {}),
     },
+    ...(initialTrace ? { initialTrace } : {}),
   });
   let tracePersistence = Promise.resolve();
   let tracePersistenceFailures = 0;

@@ -219,6 +219,21 @@ blop-browser call browser_click --input '{"target":{"ref":"e1"}}'
 
 Run `blop-browser --help` for the complete command list.
 
+Export the bounded action trace as a human timeline or JSON. Persistent
+sessions retain the latest complete trace after close or idle shutdown, until
+you run `destroy`:
+
+```bash
+blop-browser --session docs-review trace
+blop-browser --session docs-review trace --json
+```
+
+Trace events include ordered timestamps, redacted inputs and URLs, target refs,
+successes and failures, approval metadata, content boundaries, and available
+screenshot or screencast positions. See the
+[action trace contract, redaction limits, and retention rules](docs/action-traces.md)
+before storing or sharing an export.
+
 ## Connect to existing Chrome
 
 Attach over CDP to reuse an existing Chrome profile, cookies, and open tabs.
@@ -284,6 +299,7 @@ import { chromium } from "playwright";
 import {
   getBrowserSessionScope,
   createBrowserTools,
+  createTraceRecorder,
   type HarnessAction,
 } from "@blopai/browser-harness";
 
@@ -294,6 +310,9 @@ const sessionScope = getBrowserSessionScope("demo", {
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 const actions: HarnessAction[] = [];
+const traceRecorder = createTraceRecorder({
+  identity: { sessionId: "demo", agentId: "accessibility-review" },
+});
 
 const tools = await createBrowserTools({
   page,
@@ -302,6 +321,7 @@ const tools = await createBrowserTools({
   actions,
   screenshots: [],
   finishState: { status: null, reason: null },
+  traceRecorder,
   safety: {
     mode: "read-only",
   },
@@ -309,6 +329,7 @@ const tools = await createBrowserTools({
 
 const goto = tools.find((tool) => tool.name === "browser_goto")!;
 await goto.execute({ url: "https://example.com" });
+process.stdout.write(traceRecorder.timeline());
 await browser.close();
 ```
 
@@ -366,6 +387,11 @@ account changes. Use a dedicated browser profile, restrict network/filesystem
 access outside the harness, keep domain/user policy in the host, and require a
 human decision for consequential actions.
 
+The trace API returns immutable copies and bounded JSON or human timelines.
+Failed and policy-denied actions remain visible. Read the
+[action trace documentation](docs/action-traces.md) for the complete public
+contract and privacy limitations.
+
 The public API also exports `NativeToolBridge`, `startScreencast`, structured
 target helpers, `BrowserSafetyError`, the safety policy types, and warm Docker
 sessions. `startPlaywrightContainer()` and `startCamoufoxContainer()` keep their
@@ -418,6 +444,7 @@ Explicit CLI flags take precedence where both forms exist.
 | `BLOP_BROWSER_CAMOUFOX_EXECUTABLE_PATH` | Auto-detect                      | Camoufox path                                         |
 | `BLOP_BROWSER_IDLE_TIMEOUT_MS`          | `1800000`                        | Daemon idle timeout                                   |
 | `BLOP_BROWSER_READ_ONLY`                | Unset                            | Set to `1` to deny interactions                       |
+| `BLOP_BROWSER_AGENT_ID`                 | Unset                            | Optional identity in bounded action traces            |
 | `BLOP_BROWSER_RUNTIME_DIR`              | OS temporary directory           | Private session state                                 |
 | `BLOP_PLAYWRIGHT_CONTAINER`             | `blop-playwright`                | Warm Playwright server container name                 |
 | `BLOP_PLAYWRIGHT_IMAGE`                 | Playwright-version-derived image | Playwright image override                             |

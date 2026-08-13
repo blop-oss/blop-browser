@@ -1,4 +1,5 @@
 import type { HarnessAction, ToolContentBoundary } from "./types.js";
+import type { BROWSER_TOOL_CONTENT_KINDS } from "./tools/safety.js";
 
 const DEFAULT_MAX_EVENTS = 100;
 const MIN_MAX_EVENTS = 1;
@@ -16,39 +17,74 @@ const MAX_INPUT_NODES = 80;
 const MAX_TARGET_REFS = 20;
 const MAX_IDENTITY_LENGTH = 160;
 
-const STATE_CHANGING_COMMANDS = new Set([
-  "browser_goto",
-  "browser_reload",
-  "browser_go_back",
-  "browser_go_forward",
-  "browser_click",
-  "browser_click_at",
-  "browser_double_click",
-  "browser_right_click",
-  "browser_hover",
-  "browser_drag_and_drop",
-  "browser_type",
-  "browser_press",
-  "browser_tab",
-  "browser_focus",
-  "browser_blur",
-  "browser_clear",
-  "browser_check",
-  "browser_uncheck",
-  "browser_select_option",
-  "browser_upload_file",
-  "browser_set_viewport",
-  "browser_screenshot",
-  "browser_select_page",
-  "browser_close_page",
-  "record_critical_point",
-  "finish_test",
+export type BrowserTraceCommandKind = "read" | "write" | "batch";
+
+/**
+ * Exhaustive trace classification for the public tool registry. Adding a tool
+ * to the harness content-boundary registry requires classifying it here too.
+ */
+export const BROWSER_TRACE_COMMAND_KINDS = {
+  browser_snapshot: "read",
+  browser_set_viewport: "write",
+  browser_get_viewport: "read",
+  browser_screenshot: "write",
+  browser_extract: "read",
+  browser_console_logs: "read",
+  browser_get_text: "read",
+  browser_get_attribute: "read",
+  browser_get_url: "read",
+  browser_list_pages: "read",
+
+  browser_goto: "write",
+  browser_expect_url: "read",
+  browser_wait_for_url: "read",
+  browser_reload: "write",
+  browser_go_back: "write",
+  browser_go_forward: "write",
+  browser_wait_for_network_idle: "read",
+  browser_select_page: "write",
+  browser_expect_text: "read",
+  browser_wait_for_text: "read",
+  browser_wait_for_selector: "read",
+  browser_expect_visible: "read",
+  browser_expect_hidden: "read",
+  browser_expect_value: "read",
+  browser_expect_checked: "read",
+  browser_expect_enabled: "read",
+  browser_expect_disabled: "read",
+  browser_expect_count: "read",
+  browser_expect_attribute: "read",
+  browser_expect_focused: "read",
+  browser_click: "write",
+  browser_click_at: "write",
+  browser_double_click: "write",
+  browser_right_click: "write",
+  browser_hover: "write",
+  browser_drag_and_drop: "write",
+  browser_type: "write",
+  browser_press: "write",
+  browser_tab: "write",
+  browser_focus: "write",
+  browser_blur: "write",
+  browser_clear: "write",
+  browser_check: "write",
+  browser_uncheck: "write",
+  browser_select_option: "write",
+  browser_upload_file: "write",
+  browser_close_page: "write",
+  browser_run_steps: "batch",
+
+  record_critical_point: "write",
+  finish_test: "write",
+} as const satisfies Record<keyof typeof BROWSER_TOOL_CONTENT_KINDS, BrowserTraceCommandKind>;
+
+const SESSION_LIFECYCLE_COMMANDS = new Set([
   "browser_session_start",
   "browser_session_close",
   "browser_session_destroy",
 ]);
 
-const SENSITIVE_KEY_PATTERN = /(?:password|passwd|passcode|secret|token|api[_-]?key|authorization|cookie|credential|session|credit|card|cvv|cvc|ssn|email)/i;
+const SENSITIVE_KEY_PATTERN = /(?:text|password|passwd|passcode|secret|token|api[_-]?key|authorization|cookie|credential|session|credit|card|cvv|cvc|ssn|email)/i;
 const VALUE_KEY_PATTERN = /^(?:value|values|path|paths|file|files)$/i;
 const SENSITIVE_PATH_KEY_PATTERN = /^(?:password|passwd|passcode|secret|token|api[_-]?key|authorization|cookie|credential|session)$/i;
 
@@ -119,6 +155,9 @@ export type TraceRecordContext = {
 
 export type TraceRecorderOptions = {
   identity?: TraceIdentity;
+  /** Previously exported bounded trace to continue, for example after a
+   * persistent CLI session restarts. Existing event identities are retained. */
+  initialTrace?: HarnessTraceExport;
   maxEvents?: number;
   maxStringLength?: number;
   maxExportBytes?: number;
@@ -149,9 +188,11 @@ export function createTraceRecorder(options: TraceRecorderOptions = {}): TraceRe
     MAX_MAX_EXPORT_BYTES,
   );
   const identity = normalizeIdentity(options.identity, maxStringLength);
-  const storedEvents: HarnessTraceEvent[] = [];
-  let omittedEvents = 0;
-  let nextSequence = 1;
+  const initialEvents = options.initialTrace?.events.slice(-maxEvents) ?? [];
+  const storedEvents: HarnessTraceEvent[] = initialEvents.map((event) => immutableCopy(event));
+  let omittedEvents = Math.max(0, Math.floor(options.initialTrace?.omittedEvents ?? 0))
+    + Math.max(0, (options.initialTrace?.events.length ?? 0) - initialEvents.length);
+  let nextSequence = Math.max(0, ...storedEvents.map((event) => event.sequence)) + 1;
 
   const snapshot = (): HarnessTraceExport => {
     const events = storedEvents.map((event) => immutableCopy(event));
@@ -233,7 +274,8 @@ export function createTraceRecorder(options: TraceRecorderOptions = {}): TraceRe
 }
 
 export function isStateChangingCommand(command: string) {
-  return STATE_CHANGING_COMMANDS.has(command);
+  return (BROWSER_TRACE_COMMAND_KINDS as Record<string, BrowserTraceCommandKind>)[command] === "write"
+    || SESSION_LIFECYCLE_COMMANDS.has(command);
 }
 
 export function formatTraceTimeline(
@@ -301,7 +343,7 @@ export function redactTraceUrl(
       const redacted = redactTraceText(decoded, sensitiveValues, maxStringLength);
       return redacted === decoded ? segment : encodeURIComponent(redacted);
     }).join("/");
-    for (const key of [...url.searchParams.keys()]) url.searchParams.set(key, "[REDACTED]");
+    if (url.search) url.search = "?REDACTED";
     if (url.hash) url.hash = "#[REDACTED]";
     return boundedString(url.href, maxStringLength);
   } catch {

@@ -37,6 +37,7 @@ export { startScreencast, type Screencast, type ScreencastFrame, type Screencast
 
 export {
   createTraceRecorder,
+  BROWSER_TRACE_COMMAND_KINDS,
   formatTraceTimeline,
   isStateChangingCommand,
   redactTraceInput,
@@ -49,6 +50,7 @@ export {
   type TraceRecorder,
   type TraceRecorderOptions,
   type TraceRecordContext,
+  type BrowserTraceCommandKind,
 } from "./trace-recorder.js";
 
 export {

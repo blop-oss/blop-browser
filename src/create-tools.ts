@@ -148,6 +148,7 @@ export async function createBrowserTools(
           urlBefore,
           urlAfter: pageUrl(ref.page),
           stateChanging: isStateChangingCommand(name),
+          approval,
           media: traceMedia(undefined, options.liveFrame?.()),
         });
         if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
