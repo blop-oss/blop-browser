@@ -15,6 +15,7 @@ import { createTabTools } from "./tools/tabs.js";
 import type { HarnessAction } from "./types.js";
 import type { BrowserToolContext, NativeToolBridge, NativeToolResult, NetworkActivity } from "./tools/types.js";
 import { captureActionState, describeActionOutcome } from "./tools/action-outcome.js";
+import { isStateChangingCommand, type TraceMediaPosition } from "./trace-recorder.js";
 
 const OUTCOME_TOOLS = new Set([
   "browser_goto", "browser_back", "browser_forward", "browser_reload",
@@ -77,22 +78,33 @@ export async function createBrowserTools(
     getNetworkActivity: () => activityFor(ref.page),
     record: async (name, input, fn): NativeToolResult => {
       const startedAt = performance.now();
+      const traceStartedAt = new Date().toISOString();
+      const urlBefore = pageUrl(ref.page);
       const before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
       let result: Awaited<NativeToolResult>;
       try {
         result = await fn();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const timestamp = new Date().toISOString();
         const action: HarnessAction = {
           name,
           input,
           output: message,
           metadata: { error: message },
-          timestamp: new Date().toISOString(),
+          timestamp,
           durationMs: elapsed(startedAt),
         };
         options.actions.push(action);
         options.onAction?.(action);
+        recordTrace(options.traceRecorder, action, {
+          startedAt: traceStartedAt,
+          completedAt: timestamp,
+          urlBefore,
+          urlAfter: pageUrl(ref.page),
+          stateChanging: isStateChangingCommand(name),
+          media: traceMedia(undefined, options.liveFrame?.()),
+        });
         throw error;
       }
       if (before) {
@@ -129,13 +141,27 @@ export async function createBrowserTools(
           } else {
             await ref.page.screenshot({ path: shotPath, type: "jpeg", quality: 45 });
           }
-          action.metadata = { ...action.metadata, stepScreenshotPath: shotPath };
+          action.metadata = {
+            ...action.metadata,
+            stepScreenshotPath: shotPath,
+            traceScreenshotIndex: options.actions.length + 1,
+            ...(typeof frame?.seq === "number" ? { screencastFrameSequence: frame.seq } : {}),
+            ...(typeof frame?.timestamp === "number" ? { screencastFrameTimestamp: frame.timestamp } : {}),
+          };
         } catch {
           // Page not screenshot-able right now; skip the visual for this step.
         }
       }
       options.actions.push(action);
       options.onAction?.(action);
+      recordTrace(options.traceRecorder, action, {
+        startedAt: traceStartedAt,
+        completedAt: action.timestamp,
+        urlBefore,
+        urlAfter: pageUrl(ref.page),
+        stateChanging: isStateChangingCommand(name),
+        media: traceMedia(action.metadata, options.liveFrame?.()),
+      });
       return result;
     },
   };
@@ -161,4 +187,59 @@ export async function createBrowserTools(
 
 function elapsed(startedAt: number) {
   return Math.max(0, Number((performance.now() - startedAt).toFixed(1)));
+}
+
+function pageUrl(page: Page) {
+  try {
+    return page.url();
+  } catch {
+    return "";
+  }
+}
+
+function traceMedia(
+  metadata: Record<string, unknown> | undefined,
+  frame: { seq?: number; timestamp?: number } | null | undefined,
+): TraceMediaPosition | undefined {
+  const screenshotPath = typeof metadata?.stepScreenshotPath === "string"
+    ? metadata.stepScreenshotPath
+    : typeof metadata?.path === "string" ? metadata.path : undefined;
+  const screenshotIndex = typeof metadata?.traceScreenshotIndex === "number"
+    ? metadata.traceScreenshotIndex
+    : undefined;
+  const frameSequence = typeof metadata?.screencastFrameSequence === "number"
+    ? metadata.screencastFrameSequence
+    : frame?.seq;
+  const frameTimestamp = typeof metadata?.screencastFrameTimestamp === "number"
+    ? metadata.screencastFrameTimestamp
+    : frame?.timestamp;
+  if (!screenshotPath && frameSequence === undefined) return undefined;
+  return {
+    ...(screenshotPath ? {
+      screenshot: {
+        path: screenshotPath,
+        ...(screenshotIndex !== undefined ? { index: screenshotIndex } : {}),
+      },
+    } : {}),
+    ...(frameSequence !== undefined ? {
+      screencast: {
+        frame: frameSequence,
+        ...(frameTimestamp !== undefined ? { timestamp: new Date(frameTimestamp).toISOString() } : {}),
+      },
+    } : {}),
+  };
+}
+
+function recordTrace(
+  recorder: BrowserToolContext["traceRecorder"],
+  action: HarnessAction,
+  context: Parameters<NonNullable<BrowserToolContext["traceRecorder"]>["record"]>[1],
+) {
+  if (!recorder) return;
+  try {
+    recorder.record(action, context);
+  } catch {
+    // Trace export is observability, not browser control. A broken external
+    // sink must not turn a successfully dispatched action into a tool error.
+  }
 }
