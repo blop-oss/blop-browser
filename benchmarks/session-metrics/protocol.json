@@ -11,6 +11,7 @@
   "configuration": {
     "interface": "built-node-cli",
     "entry": "dist/cli.js",
+    "build_hash": "complete-dist-js-tree-v1",
     "browser": "chromium",
     "executable_source": "playwright-bundled",
     "headless": true,

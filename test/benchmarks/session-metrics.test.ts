@@ -1,9 +1,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assertIgnoredSessionMetricsPath,
   assertLoopbackSessionUrl,
+  hashRunnableDistJavaScript,
   loadSessionMetricsProtocol,
   runSessionMetricsProtocol,
   validateProtocol,
@@ -12,9 +14,15 @@ import {
 } from "../../benchmarks/session-metrics/core.mjs";
 
 const writtenFiles: string[] = [];
+const temporaryDirectories: string[] = [];
 
 afterAll(async () => {
-  await Promise.all(writtenFiles.map((path) => rm(path, { force: true })));
+  await Promise.all([
+    ...writtenFiles.map((path) => rm(path, { force: true })),
+    ...temporaryDirectories.map((path) =>
+      rm(path, { recursive: true, force: true }),
+    ),
+  ]);
 });
 
 describe("local session metrics protocol", () => {
@@ -32,6 +40,7 @@ describe("local session metrics protocol", () => {
       configuration: {
         interface: "built-node-cli",
         entry: "dist/cli.js",
+        build_hash: "complete-dist-js-tree-v1",
         browser: "chromium",
         executable_source: "playwright-bundled",
         headless: true,
@@ -46,6 +55,24 @@ describe("local session metrics protocol", () => {
     expect(sha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  test("hashes every runnable dist JavaScript file, not only the entry", async () => {
+    const directory = await temporaryBuild();
+    const initial = await hashRunnableDistJavaScript(directory);
+    const repeated = await hashRunnableDistJavaScript(directory);
+    await writeFile(
+      join(directory, "runtime.js"),
+      "export const runtimeVersion = 2;\n",
+    );
+    const changed = await hashRunnableDistJavaScript(directory);
+
+    expect(initial).toMatchObject({ files: 2 });
+    expect(initial.bytes).toBeGreaterThan(0);
+    expect(initial.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(repeated).toEqual(initial);
+    expect(changed.sha256).not.toBe(initial.sha256);
+    expect(changed.files).toBe(initial.files);
+  });
+
   test("rejects protocol drift and every non-loopback target", async () => {
     const { protocol } = await loadSessionMetricsProtocol();
     const changed = structuredClone(protocol);
@@ -55,9 +82,7 @@ describe("local session metrics protocol", () => {
     );
 
     expect(
-      assertLoopbackSessionUrl(
-        "http://127.0.0.1:4173/session-metrics",
-      ),
+      assertLoopbackSessionUrl("http://127.0.0.1:4173/session-metrics"),
     ).toBe("http://127.0.0.1:4173/session-metrics");
     for (const value of [
       "https://127.0.0.1:4173/session-metrics",
@@ -74,13 +99,20 @@ describe("local session metrics protocol", () => {
     const calls: Array<{ session: string; command: string }> = [];
     const fixtureUrl = "http://127.0.0.1:4173/session-metrics";
     const report = await runSessionMetricsProtocol({
-      cliEntry: "package.json",
+      cliEntry: await temporaryBuildEntry(),
       fixture: { url: fixtureUrl },
       now: () => new Date("2026-08-14T00:00:00.000Z"),
       runCli: fakeCli(calls, fixtureUrl),
     });
 
     expect(report.attempts).toHaveLength(3);
+    expect(report.source).toEqual(
+      expect.objectContaining({
+        runnable_dist_js_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        runnable_dist_js_files: 2,
+        runnable_dist_js_bytes: expect.any(Number),
+      }),
+    );
     expect(report.summary).toMatchObject({
       requested_repetitions: 3,
       completed_pairs: 3,
@@ -115,7 +147,7 @@ describe("local session metrics protocol", () => {
       includeTemporaryPath: true,
     });
     const report = await runSessionMetricsProtocol({
-      cliEntry: "package.json",
+      cliEntry: await temporaryBuildEntry(),
       fixture: { url: fixtureUrl },
       now: () => new Date("2026-08-14T00:00:00.000Z"),
       runCli,
@@ -141,7 +173,7 @@ describe("local session metrics protocol", () => {
   test("rejects unbounded, extra, or inconsistent report content", async () => {
     const fixtureUrl = "http://127.0.0.1:4173/session-metrics";
     const report = await runSessionMetricsProtocol({
-      cliEntry: "package.json",
+      cliEntry: await temporaryBuildEntry(),
       fixture: { url: fixtureUrl },
       now: () => new Date("2026-08-14T00:00:00.000Z"),
       runCli: fakeCli([], fixtureUrl),
@@ -165,7 +197,7 @@ describe("local session metrics protocol", () => {
   test("writes private raw reports only under the ignored result directory", async () => {
     const fixtureUrl = "http://127.0.0.1:4173/session-metrics";
     const report = await runSessionMetricsProtocol({
-      cliEntry: "package.json",
+      cliEntry: await temporaryBuildEntry(),
       fixture: { url: fixtureUrl },
       now: () => new Date("2026-08-14T00:00:00.000Z"),
       runCli: fakeCli([], fixtureUrl),
@@ -175,9 +207,7 @@ describe("local session metrics protocol", () => {
       `test-${process.pid}.json`,
     );
     writtenFiles.push(await writeSessionMetricsReport(report, output));
-    expect(
-      assertIgnoredSessionMetricsPath(output).endsWith(output),
-    ).toBe(true);
+    expect(assertIgnoredSessionMetricsPath(output).endsWith(output)).toBe(true);
     expect(await readFile(output, "utf8")).not.toContain("private");
 
     for (const value of [
@@ -206,6 +236,23 @@ describe("local session metrics protocol", () => {
   });
 });
 
+async function temporaryBuild() {
+  const directory = await mkdtemp(join(tmpdir(), "session-metrics-build-"));
+  temporaryDirectories.push(directory);
+  await Promise.all([
+    writeFile(join(directory, "cli.js"), 'import "./runtime.js";\n'),
+    writeFile(
+      join(directory, "runtime.js"),
+      "export const runtimeVersion = 1;\n",
+    ),
+  ]);
+  return directory;
+}
+
+async function temporaryBuildEntry() {
+  return join(await temporaryBuild(), "cli.js");
+}
+
 function fakeCli(
   calls: Array<{ session: string; command: string }>,
   fixtureUrl: string,
@@ -233,11 +280,7 @@ function fakeCli(
       const temporaryPath = options.includeTemporaryPath
         ? ` at ${environment.BLOP_BROWSER_RUNTIME_DIR}/private-profile`
         : "";
-      return envelope(
-        null,
-        1,
-        `Controlled snapshot failure${temporaryPath}.`,
-      );
+      return envelope(null, 1, `Controlled snapshot failure${temporaryPath}.`);
     }
     if (command === "open") {
       totals.set(session, (totals.get(session) ?? 0) + 1);
@@ -273,9 +316,8 @@ function fakeCli(
 function envelope(result: unknown, exitCode = 0, message?: string) {
   return {
     exitCode,
-    response: exitCode === 0
-      ? { ok: true, result }
-      : { ok: false, error: { message } },
+    response:
+      exitCode === 0 ? { ok: true, result } : { ok: false, error: { message } },
     stdoutUtf8Bytes: 0,
     stderr: "",
   };
@@ -297,8 +339,16 @@ function fullMetrics(total: number) {
       duration: { totalMs: total * 5 },
     },
     payloads: {
-      toolInput: { characters: total * 10, utf8Bytes: total * 10, unmeasured: 0 },
-      toolOutput: { characters: total * 20, utf8Bytes: total * 20, unmeasured: 0 },
+      toolInput: {
+        characters: total * 10,
+        utf8Bytes: total * 10,
+        unmeasured: 0,
+      },
+      toolOutput: {
+        characters: total * 20,
+        utf8Bytes: total * 20,
+        unmeasured: 0,
+      },
       snapshotOutput: {
         characters: total * 5,
         utf8Bytes: total * 5,

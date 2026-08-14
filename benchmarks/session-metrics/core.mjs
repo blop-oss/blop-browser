@@ -3,9 +3,11 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   access,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -26,6 +28,12 @@ const cliEntry = join(repositoryRoot, "dist", "cli.js");
 const maxReportBytes = 256 * 1024;
 const maxProcessOutputBytes = 2 * 1024 * 1024;
 const maxFailureReasonLength = 1_000;
+const maxRunnableBuildFiles = 512;
+const maxRunnableBuildFileBytes = 4 * 1024 * 1024;
+const maxRunnableBuildBytes = 64 * 1024 * 1024;
+const maxRunnableBuildPathBytes = 512;
+const maxRunnableBuildEntries = 2_048;
+const maxRunnableBuildDepth = 32;
 const fixtureMarker = "blop-session-metrics-fixture-v1";
 const protocolName = "Blop Browser local session metrics protocol";
 const protocolPurpose =
@@ -33,6 +41,7 @@ const protocolPurpose =
 const expectedConfiguration = {
   interface: "built-node-cli",
   entry: "dist/cli.js",
+  build_hash: "complete-dist-js-tree-v1",
   browser: "chromium",
   executable_source: "playwright-bundled",
   headless: true,
@@ -144,6 +153,49 @@ export function assertLoopbackSessionUrl(value) {
   return url.href;
 }
 
+/** Hash every runnable JavaScript file in a built dist tree. */
+export async function hashRunnableDistJavaScript(directory) {
+  const root = resolve(directory);
+  const files = [];
+  await collectRunnableJavaScript(root, root, files, { entries: 0 }, 0);
+  files.sort((left, right) =>
+    left.relativePath < right.relativePath
+      ? -1
+      : left.relativePath > right.relativePath
+        ? 1
+        : 0,
+  );
+  if (files.length === 0) {
+    throw new Error("Runnable build contains no JavaScript files.");
+  }
+
+  const hash = createHash("sha256");
+  hash.update("blop-browser-complete-dist-js-tree-v1\0");
+  let totalBytes = 0;
+  for (const file of files) {
+    const pathBytes = Buffer.from(file.relativePath, "utf8");
+    totalBytes += file.bytes;
+    if (totalBytes > maxRunnableBuildBytes) {
+      throw new Error("Runnable build exceeds its evidence byte bound.");
+    }
+    const content = await readFile(file.path);
+    if (content.byteLength !== file.bytes) {
+      throw new Error("Runnable build changed while it was being hashed.");
+    }
+    const lengths = Buffer.alloc(8);
+    lengths.writeUInt32BE(pathBytes.byteLength, 0);
+    lengths.writeUInt32BE(content.byteLength, 4);
+    hash.update(lengths);
+    hash.update(pathBytes);
+    hash.update(content);
+  }
+  return {
+    sha256: hash.digest("hex"),
+    files: files.length,
+    bytes: totalBytes,
+  };
+}
+
 export async function startSessionMetricsFixture() {
   const server = createServer((request, response) => {
     const host = request.headers.host ?? "";
@@ -199,7 +251,10 @@ export async function runSessionMetricsProtocol(options = {}) {
     options.protocolPath,
   );
   const entry = options.cliEntry ?? cliEntry;
-  const cliBuild = await readFile(entry);
+  if (!entry.endsWith(".js")) {
+    throw new Error("The session metrics CLI entry must be a JavaScript file.");
+  }
+  const runnableBuild = await hashRunnableDistJavaScript(dirname(entry));
   const fixture = options.fixture ?? (await startSessionMetricsFixture());
   const temporaryRoot = await mkdtemp(join(tmpdir(), "blop-session-metrics-"));
   const attempts = [];
@@ -379,7 +434,9 @@ export async function runSessionMetricsProtocol(options = {}) {
     source: {
       ...sourceSnapshot(),
       protocol_sha256: sha256,
-      cli_build_sha256: createHash("sha256").update(cliBuild).digest("hex"),
+      runnable_dist_js_sha256: runnableBuild.sha256,
+      runnable_dist_js_files: runnableBuild.files,
+      runnable_dist_js_bytes: runnableBuild.bytes,
       ...packageSnapshot(),
     },
     environment: {
@@ -423,6 +480,48 @@ export async function writeSessionMetricsReport(report, outputPath) {
     mode: 0o600,
   });
   return resolved;
+}
+
+async function collectRunnableJavaScript(root, current, files, state, depth) {
+  if (depth > maxRunnableBuildDepth) {
+    throw new Error("Runnable build exceeds its evidence depth bound.");
+  }
+  const entries = await readdir(current, { withFileTypes: true });
+  entries.sort((left, right) =>
+    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+  );
+  for (const entry of entries) {
+    state.entries += 1;
+    if (state.entries > maxRunnableBuildEntries) {
+      throw new Error("Runnable build exceeds its evidence entry-count bound.");
+    }
+    const path = join(current, entry.name);
+    const metadata = await lstat(path);
+    if (metadata.isSymbolicLink()) {
+      throw new Error("Runnable build tree must not contain symbolic links.");
+    }
+    if (metadata.isDirectory()) {
+      await collectRunnableJavaScript(root, path, files, state, depth + 1);
+      continue;
+    }
+    if (!metadata.isFile()) {
+      throw new Error("Runnable build tree contains an unsupported file type.");
+    }
+    if (!entry.name.endsWith(".js")) continue;
+    if (files.length >= maxRunnableBuildFiles) {
+      throw new Error("Runnable build exceeds its evidence file-count bound.");
+    }
+    const relativePath = relative(root, path).split("\\").join("/");
+    const pathBytes = Buffer.byteLength(relativePath, "utf8");
+    if (
+      pathBytes === 0 ||
+      pathBytes > maxRunnableBuildPathBytes ||
+      metadata.size > maxRunnableBuildFileBytes
+    ) {
+      throw new Error("Runnable build file exceeds its evidence bound.");
+    }
+    files.push({ path, relativePath, bytes: metadata.size });
+  }
 }
 
 export function assertIgnoredSessionMetricsPath(value) {
@@ -506,7 +605,9 @@ export function validateReport(report) {
         "repository_commit",
         "working_tree_dirty",
         "protocol_sha256",
-        "cli_build_sha256",
+        "runnable_dist_js_sha256",
+        "runnable_dist_js_files",
+        "runnable_dist_js_bytes",
         "harness_version",
         "playwright_version",
       ],
@@ -538,7 +639,13 @@ export function validateReport(report) {
     report.schema_version !== "1.0.0" ||
     !validIsoDate(report.generated_at) ||
     !/^[a-f0-9]{64}$/.test(report.source?.protocol_sha256 ?? "") ||
-    !/^[a-f0-9]{64}$/.test(report.source?.cli_build_sha256 ?? "") ||
+    !/^[a-f0-9]{64}$/.test(report.source?.runnable_dist_js_sha256 ?? "") ||
+    !Number.isSafeInteger(report.source?.runnable_dist_js_files) ||
+    report.source.runnable_dist_js_files < 1 ||
+    report.source.runnable_dist_js_files > maxRunnableBuildFiles ||
+    !Number.isSafeInteger(report.source?.runnable_dist_js_bytes) ||
+    report.source.runnable_dist_js_bytes < 1 ||
+    report.source.runnable_dist_js_bytes > maxRunnableBuildBytes ||
     !shortString(report.source?.harness_version, 64) ||
     !shortString(report.source?.playwright_version, 64) ||
     !shortString(report.environment?.node_version, 64) ||

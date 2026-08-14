@@ -30,7 +30,9 @@
         "repository_commit",
         "working_tree_dirty",
         "protocol_sha256",
-        "cli_build_sha256",
+        "runnable_dist_js_sha256",
+        "runnable_dist_js_files",
+        "runnable_dist_js_bytes",
         "harness_version",
         "playwright_version"
       ],
@@ -44,9 +46,19 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
-        "cli_build_sha256": {
+        "runnable_dist_js_sha256": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
+        },
+        "runnable_dist_js_files": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "runnable_dist_js_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
         },
         "harness_version": {
           "type": "string",
@@ -127,6 +139,7 @@
           "required": [
             "interface",
             "entry",
+            "build_hash",
             "browser",
             "executable_source",
             "headless",
@@ -136,6 +149,7 @@
           "properties": {
             "interface": { "const": "built-node-cli" },
             "entry": { "const": "dist/cli.js" },
+            "build_hash": { "const": "complete-dist-js-tree-v1" },
             "browser": { "const": "chromium" },
             "executable_source": { "const": "playwright-bundled" },
             "headless": { "const": true },

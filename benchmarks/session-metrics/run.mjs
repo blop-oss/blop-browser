@@ -35,7 +35,9 @@ process.stdout.write(
     {
       output: writtenPath,
       protocol_sha256: report.source.protocol_sha256,
-      cli_build_sha256: report.source.cli_build_sha256,
+      runnable_dist_js_sha256: report.source.runnable_dist_js_sha256,
+      runnable_dist_js_files: report.source.runnable_dist_js_files,
+      runnable_dist_js_bytes: report.source.runnable_dist_js_bytes,
       requested_repetitions: report.summary.requested_repetitions,
       completed_pairs: report.summary.completed_pairs,
       failed_pairs: report.summary.failed_pairs,

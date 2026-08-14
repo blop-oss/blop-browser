@@ -48,9 +48,12 @@ Each phase retains the exact aggregate delta for its two browser commands:
 - `null` token fields with an unavailable source and tokenizer. This local CLI
   workflow has no provider-reported or tokenizer-specific token count.
 
-The protocol also records the repository commit and dirty state, protocol and
-built CLI hashes, package and Playwright versions, actual browser version,
-Node.js version, operating system, and architecture. The hostname is redacted.
+The protocol also records the repository commit and dirty state, protocol
+hash, and a deterministic hash of every runnable `.js` file under `dist/`.
+The build digest includes sorted relative paths and bytes, with bounded file
+count, per-file size, and total size; the report records those counts. It also
+records package and Playwright versions, actual browser version, Node.js
+version, operating system, and architecture. The hostname is redacted.
 
 Read the [session metrics contract](../../docs/session-metrics.md) for recorder
 scope, persistence, active-segment timing, and privacy details.
@@ -131,6 +134,6 @@ When changing the protocol:
 3. Commit the implementation, build from that clean commit, and run all three
    paired repetitions.
 4. Publish a separate bounded summary naming the exact source commit, dirty
-   state, hashes, versions, all six timed phases, metric deltas, failures, and
-   limitations.
+   state, protocol and complete runnable `dist` JavaScript tree hashes,
+   versions, all six timed phases, metric deltas, failures, and limitations.
 5. Keep full generated reports under `.results/` and out of Git.
