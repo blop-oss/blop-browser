@@ -129,6 +129,21 @@ Install the Blop Browser skill and set up the blop-browser CLI:
 
 </details>
 
+Interactive terminals check the npm registry at most once every 24 hours and
+ask before installing a newer `@blopai/browser-harness`. This is not telemetry.
+Disable the check with `BLOP_BROWSER_UPDATE_CHECK=off`.
+
+```bash
+blop-browser update
+blop-browser update --json
+```
+
+`--json` reports the current and latest versions without installing. Approving
+an update, or passing `--install`, runs
+`npm install --global @blopai/browser-harness` and overwrites any existing
+`browser-harness` skill copies in the usual user and project skill directories.
+It does not create a skill install that was not already present.
+
 ## Choose a browser mode
 
 The first interactive browser command opens `blop-browser config` when no mode

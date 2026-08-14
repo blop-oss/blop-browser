@@ -94,6 +94,13 @@ A saved CDP endpoint never authorizes access to an existing profile. After the
 user explicitly approves access, start a configured CDP session with
 `blop-browser --attach-existing snapshot`.
 
+`--json` commands do not check npm. If the user asks whether the CLI is
+current, run `blop-browser update --json`. Ask before installing. After
+approval, run `blop-browser update --install`. That refreshes existing
+`browser-harness` skill copies from the new package; it does not create a new
+skill install. Disable automatic interactive checks with
+`BLOP_BROWSER_UPDATE_CHECK=off`. This is not telemetry.
+
 ## Existing Chrome over CDP
 
 When the user wants to reuse an existing Chrome profile, cookies, or open tabs,

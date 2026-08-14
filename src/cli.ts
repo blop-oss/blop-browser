@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { closeSync, openSync, realpathSync } from "node:fs";
-import { constants } from "node:fs";
-import { access, chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -52,6 +51,29 @@ import {
   type CliSessionPrivacySummary,
 } from "./cli/privacy.js";
 import { BrowserControlError } from "./session/control.js";
+import {
+  cacheIsFresh,
+  createPackageUpdateReport,
+  formatUpdateAvailableMessage,
+  formatUpdatePrompt,
+  harnessPackageVersion,
+  packageUpdateCachePath,
+  packageUpdateScriptPath,
+  readPackageUpdateCache,
+  shouldOfferUpdateCheck,
+  shouldPromptForCachedUpdate,
+  writePackageUpdateCache,
+  type PackageUpdateReport,
+} from "./cli/update.js";
+import {
+  installSkills,
+  packageSkillPath,
+  refreshInstalledSkills,
+  SKILL_SCOPES,
+  SKILL_TARGETS,
+  type SkillScope,
+  type SkillTarget,
+} from "./cli/skill.js";
 
 const HELP = `Blop Browser — browser infrastructure for coding agents
 
@@ -82,6 +104,7 @@ Usage:
   blop-browser skill install --target agents|claude|opencode|all [--scope project|user]
   blop-browser config [--mode MODE] [--json]
   blop-browser install camoufox [--json]
+  blop-browser update [--install] [--json]
   blop-browser doctor [--json]
 
 Global options:
@@ -152,6 +175,13 @@ export async function main(argv = process.argv.slice(2)) {
     config = await readBrowserConfig(configPath);
     parsed = parseArgs(argv, config);
   }
+  if (shouldOfferUpdateCheck({
+    command: parsed.command,
+    json: parsed.json,
+    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+  })) {
+    await maybePromptForPackageUpdate(configPath, parsed.json);
+  }
   process.env.BLOP_BROWSER_HEADLESS = parsed.headless ? "1" : "0";
   if (parsed.command === "_daemon") {
     if (parsed.cdpEndpoint && !parsed.attachExisting) {
@@ -172,6 +202,11 @@ export async function main(argv = process.argv.slice(2)) {
 
   if (parsed.command === "config") {
     await runConfigCommand(parsed, configPath);
+    return;
+  }
+
+  if (parsed.command === "update") {
+    await runUpdateCommand(parsed, configPath);
     return;
   }
 
@@ -226,6 +261,11 @@ export async function main(argv = process.argv.slice(2)) {
       profileMode: parsed.profileMode,
     });
     printResponse(okResponse("doctor", {
+      package: {
+        name: "@blopai/browser-harness",
+        version: harnessPackageVersion(),
+        updateCommand: "blop-browser update",
+      },
       browser: {
         name: parsed.browser,
         connection: parsed.connection ?? "launch",
@@ -403,7 +443,7 @@ function parseTarget(raw: string): string | Record<string, unknown> {
 
 async function runSkillCommand(args: string[], json: boolean) {
   const action = args[0] ?? "show";
-  const source = fileURLToPath(new URL("../skills/browser-harness/SKILL.md", import.meta.url));
+  const source = packageSkillPath();
   if (action === "show") {
     const skill = await readFile(source, "utf8");
     if (json) printResponse(okResponse("skill", { content: skill }), true);
@@ -414,21 +454,192 @@ async function runSkillCommand(args: string[], json: boolean) {
 
   const target = optionValue(args, "--target") ?? "all";
   const scope = optionValue(args, "--scope") ?? "project";
-  if (!["agents", "claude", "opencode", "all"].includes(target)) {
+  if (!(SKILL_TARGETS as readonly string[]).includes(target)) {
     throw new Error("--target must be agents, claude, opencode, or all.");
   }
-  if (!["project", "user"].includes(scope)) throw new Error("--scope must be project or user.");
-  const force = args.includes("--force");
-  const projectDirectory = resolve(optionValue(args, "--project-dir") ?? process.cwd());
-  const roots = skillRoots(target, scope, projectDirectory);
-  const installed: string[] = [];
-  for (const root of roots) {
-    const destination = join(root, "browser-harness", "SKILL.md");
-    await mkdir(dirname(destination), { recursive: true });
-    await copyFile(source, destination, force ? 0 : constants.COPYFILE_EXCL);
-    installed.push(destination);
-  }
+  if (!(SKILL_SCOPES as readonly string[]).includes(scope)) throw new Error("--scope must be project or user.");
+  const installed = await installSkills({
+    target: target as SkillTarget,
+    scope: scope as SkillScope,
+    projectDirectory: resolve(optionValue(args, "--project-dir") ?? process.cwd()),
+    force: args.includes("--force"),
+    source,
+  });
   printResponse(okResponse("skill", { installed }), json);
+}
+
+async function runUpdateCommand(parsed: ParsedArgs, configPath: string) {
+  if (parsed.rest.some((argument) => argument !== "--install")) {
+    throw new Error("Usage: blop-browser update [--install] [--json]");
+  }
+  const install = parsed.rest.includes("--install");
+  const report = await checkPackageUpdate(configPath, { force: true, persist: true });
+  if (!report) {
+    throw new Error("Could not check npm for a newer @blopai/browser-harness version.");
+  }
+  if (!report.updateAvailable) {
+    printResponse(okResponse("update", {
+      ...report,
+      installed: false,
+      skillsUpdated: [],
+    }), parsed.json);
+    return;
+  }
+  if (install || await confirmPackageUpdate(report, parsed.json)) {
+    await installPackageUpdate();
+    const skillsUpdated = await refreshInstalledSkills();
+    printResponse(okResponse("update", {
+      ...report,
+      installed: true,
+      skillsUpdated,
+    }), parsed.json);
+    return;
+  }
+  await rememberDeclinedUpdate(configPath, report);
+  if (parsed.json) {
+    printResponse(okResponse("update", {
+      ...report,
+      installed: false,
+      skillsUpdated: [],
+    }), true);
+    return;
+  }
+  process.stdout.write(`${formatUpdateAvailableMessage(report)}\n`);
+}
+
+async function maybePromptForPackageUpdate(configPath: string, json: boolean) {
+  const cachePath = packageUpdateCachePath(configPath);
+  const current = harnessPackageVersion();
+  const cache = await readPackageUpdateCache(cachePath);
+  const report = await checkPackageUpdate(configPath, { force: false, persist: true });
+  if (!report?.updateAvailable || !shouldPromptForCachedUpdate(cache, report.latest)) return;
+  if (!await confirmPackageUpdate(report, json)) {
+    await rememberDeclinedUpdate(configPath, report, current);
+    return;
+  }
+  await installPackageUpdate();
+  await refreshInstalledSkills();
+}
+
+async function checkPackageUpdate(
+  configPath: string,
+  options: { force: boolean; persist: boolean },
+): Promise<PackageUpdateReport | null> {
+  const cachePath = packageUpdateCachePath(configPath);
+  const current = harnessPackageVersion();
+  const cache = await readPackageUpdateCache(cachePath);
+  if (!options.force && cache && cacheIsFresh(cache, current)) {
+    return createPackageUpdateReport({
+      current: cache.current,
+      latest: cache.latest,
+    });
+  }
+  try {
+    const report = await runPackageUpdateCheck(current);
+    if (options.persist) {
+      await writePackageUpdateCache(cachePath, {
+        version: 1,
+        checkedAt: new Date().toISOString(),
+        current: report.current,
+        latest: report.latest,
+        ...(cache?.declinedLatest ? { declinedLatest: cache.declinedLatest } : {}),
+      });
+    }
+    return report;
+  } catch {
+    return null;
+  }
+}
+
+async function rememberDeclinedUpdate(
+  configPath: string,
+  report: PackageUpdateReport,
+  current = report.current,
+) {
+  const cache = await readPackageUpdateCache(packageUpdateCachePath(configPath));
+  await writePackageUpdateCache(packageUpdateCachePath(configPath), {
+    version: 1,
+    checkedAt: cache?.checkedAt ?? new Date().toISOString(),
+    current,
+    latest: report.latest,
+    declinedLatest: report.latest,
+  });
+}
+
+async function confirmPackageUpdate(report: PackageUpdateReport, json: boolean) {
+  if (json || !process.stdin.isTTY || !process.stdout.isTTY) return false;
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const confirmation = (await prompt.question(formatUpdatePrompt(report))).trim();
+    return /^y(?:es)?$/i.test(confirmation);
+  } finally {
+    prompt.close();
+  }
+}
+
+async function installPackageUpdate() {
+  const updateScript = process.env.BLOP_BROWSER_UPDATE_SCRIPT ?? packageUpdateScriptPath();
+  const nodeExecutable = process.env.BLOP_BROWSER_NODE_PATH ?? (process.versions.bun ? "node" : process.execPath);
+  const child = spawn(nodeExecutable, [
+    updateScript,
+    "install",
+    ...(process.env.BLOP_BROWSER_NPM_PATH ? ["--npm", process.env.BLOP_BROWSER_NPM_PATH] : []),
+  ], {
+    env: process.env,
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  const exitCode = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  if (exitCode !== 0) {
+    throw new Error(`Package update failed with exit code ${exitCode}.`);
+  }
+}
+
+async function runPackageUpdateCheck(current: string): Promise<PackageUpdateReport> {
+  const updateScript = process.env.BLOP_BROWSER_UPDATE_SCRIPT ?? packageUpdateScriptPath();
+  const nodeExecutable = process.env.BLOP_BROWSER_NODE_PATH ?? (process.versions.bun ? "node" : process.execPath);
+  const child = spawn(nodeExecutable, [
+    updateScript,
+    "check",
+    "--current",
+    current,
+    ...(process.env.BLOP_BROWSER_NPM_REGISTRY
+      ? ["--registry", process.env.BLOP_BROWSER_NPM_REGISTRY]
+      : []),
+  ], {
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    output += chunk;
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    output += chunk;
+  });
+  const exitCode = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  const payload = output.trim().split("\n").at(-1) ?? "";
+  let parsed: { ok?: boolean; error?: { message?: string } };
+  try {
+    parsed = JSON.parse(payload) as { ok?: boolean; error?: { message?: string } };
+  } catch {
+    throw new Error(payload || `Package update check failed with exit code ${exitCode}.`);
+  }
+  if (exitCode !== 0 || parsed.ok !== true) {
+    throw new Error(parsed.error?.message ?? `Package update check failed with exit code ${exitCode}.`);
+  }
+  return createPackageUpdateReport({
+    current: String((parsed as PackageUpdateReport).current),
+    latest: String((parsed as PackageUpdateReport).latest),
+    registry: (parsed as PackageUpdateReport).registry,
+  });
 }
 
 async function runConfigCommand(parsed: ParsedArgs, configPath: string) {
@@ -485,7 +696,7 @@ export function shouldRunFirstConfig(input: {
 }) {
   const { argv, command, configured, json, interactive } = input;
   if (configured || json || !interactive) return false;
-  if (["", "help", "--help", "-h", "config", "install", "skill", "data", "doctor", "status", "trace", "metrics", "takeover", "close", "destroy", "_daemon"]
+  if (["", "help", "--help", "-h", "config", "install", "update", "skill", "data", "doctor", "status", "trace", "metrics", "takeover", "close", "destroy", "_daemon"]
     .includes(command)) return false;
   return !["--browser", "--cdp-endpoint", "--attach-existing", "--headless", "--headed"]
     .some((option) => argv.includes(option));
@@ -521,23 +732,6 @@ async function promptForInstallMode(json: boolean): Promise<{ mode: InstallMode;
   } finally {
     prompt.close();
   }
-}
-
-function skillRoots(target: string, scope: string, projectDirectory: string) {
-  const agents = scope === "user"
-    ? join(homedir(), ".agents", "skills")
-    : join(projectDirectory, ".agents", "skills");
-  const claude = scope === "user"
-    ? join(homedir(), ".claude", "skills")
-    : join(projectDirectory, ".claude", "skills");
-  const opencode = scope === "user"
-    ? join(homedir(), ".config", "opencode", "skills")
-    : join(projectDirectory, ".opencode", "skills");
-  if (target === "claude") return [claude];
-  if (target === "agents") return [agents];
-  if (target === "opencode") return [opencode];
-  // OpenCode also discovers .agents, so "all" avoids installing duplicates.
-  return [agents, claude];
 }
 
 function parseArgs(argv: string[], config: BrowserConfig | null): ParsedArgs {

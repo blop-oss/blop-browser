@@ -90,6 +90,7 @@ const requiredFlows = [
   "SCREENCAST_CALLBACK",
   "CONTAINER_TRANSPORT",
   "CAMOUFOX_INSTALL",
+  "PACKAGE_UPDATE",
   "BENCHMARK_SERVICES",
   "SESSION_RETENTION",
 ];
@@ -211,6 +212,8 @@ function validateReviewedSourceSinks(paths) {
   const exactEvidence = [
     ["src/cli/ipc.ts", 'server.listen(0, "127.0.0.1"'],
     ["src/cli.ts", 'spawn(nodeExecutable, [cliPath, "fetch"]'],
+    ["src/cli.ts", 'updateScript,\n    "check"'],
+    ["src/cli/update.ts", "PACKAGE_UPDATE_REGISTRY_PATH"],
     ["src/session/playwright-container.ts", "internetEgressProbe.enabled"],
     ["src/session/camoufox-container.ts", "internetEgressProbe.enabled"],
     ["src/session/bun-ws-compat.ts", "new BunWs(url"],
