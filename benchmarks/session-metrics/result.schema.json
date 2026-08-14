@@ -1,0 +1,561 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/blop-oss/blop-browser/blob/master/benchmarks/session-metrics/result.schema.json",
+  "title": "Blop Browser local session metrics report",
+  "description": "Bounded raw evidence from three paired cold-start and warm-resume workflows against a loopback fixture.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "source",
+    "environment",
+    "authorization",
+    "protocol",
+    "attempts",
+    "summary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "maxLength": 64
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_commit",
+        "working_tree_dirty",
+        "protocol_sha256",
+        "cli_build_sha256",
+        "harness_version",
+        "playwright_version"
+      ],
+      "properties": {
+        "repository_commit": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "working_tree_dirty": { "type": ["boolean", "null"] },
+        "protocol_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "cli_build_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "harness_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "playwright_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_version", "platform", "architecture", "hostname"],
+      "properties": {
+        "node_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "architecture": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "hostname": { "const": "redacted" }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_scope", "third_party_sites", "statement"],
+      "properties": {
+        "target_scope": { "const": "loopback-only" },
+        "third_party_sites": { "const": false },
+        "statement": {
+          "const": "Every timed workflow loaded only the protocol's controlled 127.0.0.1 fixture."
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "name",
+        "repetitions",
+        "target",
+        "configuration",
+        "phases",
+        "measurement_scope"
+      ],
+      "properties": {
+        "protocol_version": { "const": "1.0.0" },
+        "name": { "const": "Blop Browser local session metrics protocol" },
+        "repetitions": { "const": 3 },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "host", "path"],
+          "properties": {
+            "kind": { "const": "loopback-fixture" },
+            "host": { "const": "127.0.0.1" },
+            "path": { "const": "/session-metrics" }
+          }
+        },
+        "configuration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "interface",
+            "entry",
+            "browser",
+            "executable_source",
+            "headless",
+            "profile",
+            "commands"
+          ],
+          "properties": {
+            "interface": { "const": "built-node-cli" },
+            "entry": { "const": "dist/cli.js" },
+            "browser": { "const": "chromium" },
+            "executable_source": { "const": "playwright-bundled" },
+            "headless": { "const": true },
+            "profile": { "const": "persistent-fresh-per-repetition" },
+            "commands": {
+              "type": "array",
+              "prefixItems": [{ "const": "open" }, { "const": "snapshot" }],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        "phases": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cold_start", "warm_resume"],
+          "properties": {
+            "cold_start": { "$ref": "#/$defs/phaseDefinition" },
+            "warm_resume": { "$ref": "#/$defs/phaseDefinition" }
+          }
+        },
+        "measurement_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "latency_clock",
+            "payload_characters",
+            "payload_bytes",
+            "tokens",
+            "outside_timers"
+          ],
+          "properties": {
+            "latency_clock": {
+              "const": "parent-process performance.now monotonic clock"
+            },
+            "payload_characters": { "const": "Unicode code points" },
+            "payload_bytes": { "const": "UTF-8 bytes" },
+            "tokens": {
+              "const": "null unless exact provider-reported or tokenizer-specific counts are supplied by a host"
+            },
+            "outside_timers": {
+              "type": "array",
+              "prefixItems": [
+                { "const": "readiness checks" },
+                { "const": "metrics export" },
+                { "const": "teardown" }
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            }
+          }
+        }
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/attempt" }
+    },
+    "summary": { "$ref": "#/$defs/summary" },
+    "limitations": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    }
+  },
+  "$defs": {
+    "counter": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "duration": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 600000
+    },
+    "phaseDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["precondition", "timer_start", "workflow", "timer_end"],
+      "properties": {
+        "precondition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "timer_start": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "workflow": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "open-loopback-fixture" },
+            { "const": "snapshot-loopback-fixture" }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "timer_end": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "approvals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "approved", "denied"],
+      "properties": {
+        "requested": { "$ref": "#/$defs/counter" },
+        "approved": { "$ref": "#/$defs/counter" },
+        "denied": { "$ref": "#/$defs/counter" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["saturated", "commands", "payloads", "tokens"],
+      "properties": {
+        "saturated": { "type": "boolean" },
+        "commands": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "total",
+            "succeeded",
+            "failed",
+            "snapshots",
+            "unclassified_actions",
+            "unclassified_retries",
+            "retries",
+            "approvals",
+            "duration_ms"
+          ],
+          "properties": {
+            "total": { "$ref": "#/$defs/counter" },
+            "succeeded": { "$ref": "#/$defs/counter" },
+            "failed": { "$ref": "#/$defs/counter" },
+            "snapshots": { "$ref": "#/$defs/counter" },
+            "unclassified_actions": { "$ref": "#/$defs/counter" },
+            "unclassified_retries": { "$ref": "#/$defs/counter" },
+            "retries": { "$ref": "#/$defs/counter" },
+            "approvals": { "$ref": "#/$defs/approvals" },
+            "duration_ms": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        "payloads": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool_input_characters",
+            "tool_input_utf8_bytes",
+            "tool_input_unmeasured",
+            "tool_output_characters",
+            "tool_output_utf8_bytes",
+            "tool_output_unmeasured",
+            "snapshot_output_characters",
+            "snapshot_output_utf8_bytes",
+            "snapshot_output_unmeasured",
+            "model_images",
+            "model_image_data_url_characters",
+            "model_image_data_url_utf8_bytes",
+            "model_images_unmeasured"
+          ],
+          "properties": {
+            "tool_input_characters": { "$ref": "#/$defs/counter" },
+            "tool_input_utf8_bytes": { "$ref": "#/$defs/counter" },
+            "tool_input_unmeasured": { "$ref": "#/$defs/counter" },
+            "tool_output_characters": { "$ref": "#/$defs/counter" },
+            "tool_output_utf8_bytes": { "$ref": "#/$defs/counter" },
+            "tool_output_unmeasured": { "$ref": "#/$defs/counter" },
+            "snapshot_output_characters": { "$ref": "#/$defs/counter" },
+            "snapshot_output_utf8_bytes": { "$ref": "#/$defs/counter" },
+            "snapshot_output_unmeasured": { "$ref": "#/$defs/counter" },
+            "model_images": { "$ref": "#/$defs/counter" },
+            "model_image_data_url_characters": {
+              "$ref": "#/$defs/counter"
+            },
+            "model_image_data_url_utf8_bytes": {
+              "$ref": "#/$defs/counter"
+            },
+            "model_images_unmeasured": { "$ref": "#/$defs/counter" }
+          }
+        },
+        "tokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "input",
+            "output",
+            "total",
+            "availability",
+            "source",
+            "tokenizer"
+          ],
+          "properties": {
+            "input": { "type": "null" },
+            "output": { "type": "null" },
+            "total": { "type": "null" },
+            "availability": { "const": "unavailable" },
+            "source": { "type": "null" },
+            "tokenizer": { "type": "null" }
+          }
+        }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "status",
+        "started_at",
+        "duration_ms",
+        "failure_class",
+        "reason",
+        "metrics"
+      ],
+      "properties": {
+        "phase": { "enum": ["cold_start", "warm_resume"] },
+        "status": { "enum": ["collected", "failed", "not_run"] },
+        "started_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "maxLength": 64
+        },
+        "duration_ms": {
+          "anyOf": [{ "$ref": "#/$defs/duration" }, { "type": "null" }]
+        },
+        "failure_class": {
+          "enum": [null, "environment", "harness"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "metrics": {
+          "anyOf": [{ "$ref": "#/$defs/metrics" }, { "type": "null" }]
+        }
+      }
+    },
+    "auxiliary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "status", "failure_class", "reason"],
+      "properties": {
+        "phase": { "enum": ["readiness", "teardown"] },
+        "status": { "enum": ["verified", "failed", "not_run"] },
+        "failure_class": {
+          "enum": [null, "environment", "harness"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repetition",
+        "session",
+        "precondition",
+        "browser",
+        "cold_start",
+        "readiness",
+        "warm_resume",
+        "teardown",
+        "final_session_metrics"
+      ],
+      "properties": {
+        "repetition": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "session": {
+          "type": "string",
+          "pattern": "^metrics-[1-3]$"
+        },
+        "precondition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason"],
+          "properties": {
+            "status": { "enum": ["verified", "failed"] },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          }
+        },
+        "browser": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "version", "headless"],
+              "properties": {
+                "name": { "const": "chromium" },
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "headless": { "const": true }
+              }
+            }
+          ]
+        },
+        "cold_start": { "$ref": "#/$defs/phase" },
+        "readiness": { "$ref": "#/$defs/auxiliary" },
+        "warm_resume": { "$ref": "#/$defs/phase" },
+        "teardown": { "$ref": "#/$defs/auxiliary" },
+        "final_session_metrics": {
+          "anyOf": [{ "$ref": "#/$defs/metrics" }, { "type": "null" }]
+        }
+      }
+    },
+    "durationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["values", "median", "minimum", "maximum"],
+      "properties": {
+        "values": {
+          "type": "array",
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/duration" }
+        },
+        "median": {
+          "anyOf": [{ "$ref": "#/$defs/duration" }, { "type": "null" }]
+        },
+        "minimum": {
+          "anyOf": [{ "$ref": "#/$defs/duration" }, { "type": "null" }]
+        },
+        "maximum": {
+          "anyOf": [{ "$ref": "#/$defs/duration" }, { "type": "null" }]
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repetition", "phase", "failure_class", "reason"],
+      "properties": {
+        "repetition": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "phase": {
+          "enum": [
+            "precondition",
+            "cold_start",
+            "readiness",
+            "warm_resume",
+            "teardown"
+          ]
+        },
+        "failure_class": { "enum": ["environment", "harness"] },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested_repetitions",
+        "completed_pairs",
+        "failed_pairs",
+        "cold_start_ms",
+        "warm_resume_ms",
+        "failures"
+      ],
+      "properties": {
+        "requested_repetitions": { "const": 3 },
+        "completed_pairs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "failed_pairs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "cold_start_ms": { "$ref": "#/$defs/durationSummary" },
+        "warm_resume_ms": { "$ref": "#/$defs/durationSummary" },
+        "failures": {
+          "type": "array",
+          "maxItems": 15,
+          "items": { "$ref": "#/$defs/failure" }
+        }
+      }
+    }
+  }
+}

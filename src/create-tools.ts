@@ -13,6 +13,7 @@ import { createNavigationTools } from "./tools/navigation.js";
 import { createPageTools } from "./tools/page.js";
 import { createTabTools } from "./tools/tabs.js";
 import type { HarnessAction } from "./types.js";
+import type { SessionMetricsRecorder } from "./session-metrics.js";
 import type { BrowserToolContext, NativeToolBridge, NativeToolResult, NetworkActivity } from "./tools/types.js";
 import { captureActionState, describeActionOutcome } from "./tools/action-outcome.js";
 import {
@@ -109,6 +110,13 @@ export async function createBrowserTools(
       let before = null;
       let approval: TraceApproval | undefined;
       let result: Awaited<NativeToolResult>;
+      let metricsRecordingError: string | undefined;
+      const retry = () => {
+        metricsRecordingError ??= recordMetricsRetry(
+          options.sessionMetricsRecorder,
+          name,
+        );
+      };
       try {
         const safetyDecision = await enforceBrowserSafety({
           page: ref.page,
@@ -126,7 +134,7 @@ export async function createBrowserTools(
           };
         }
         before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
-        const payload = await fn();
+        const payload = await fn({ retry });
         const navigationViolation = settleNavigationPolicy();
         if (navigationViolation) throw navigationViolation;
         result = {
@@ -151,6 +159,8 @@ export async function createBrowserTools(
           outputBoundary: toolError.contentBoundary,
           metadata: {
             error: message,
+            ...(metricsRecordingError ? { metricsRecordingError } : {}),
+            ...(approval ? { approval } : {}),
             ...(toolError instanceof BrowserSafetyError ? {
               policyBlocked: true,
               policyCode: toolError.code,
@@ -174,6 +184,13 @@ export async function createBrowserTools(
           media: traceMedia(undefined, options.liveFrame?.()),
         });
         if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
+        const metricsError = recordSessionMetrics(
+          options.sessionMetricsRecorder,
+          action,
+        );
+        if (metricsError) {
+          action.metadata = { ...action.metadata, metricsRecordingError: metricsError };
+        }
         options.actions.push(action);
         options.onAction?.(action);
         throw toolError;
@@ -197,6 +214,7 @@ export async function createBrowserTools(
         metadata: {
           ...result.metadata,
           ...(approval ? { approval } : {}),
+          ...(metricsRecordingError ? { metricsRecordingError } : {}),
         },
         timestamp: new Date().toISOString(),
         durationMs: elapsed(startedAt),
@@ -237,6 +255,14 @@ export async function createBrowserTools(
         media: traceMedia(action.metadata, options.liveFrame?.()),
       });
       if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
+      const metricsError = recordSessionMetrics(
+        options.sessionMetricsRecorder,
+        action,
+        result.modelImages?.map((modelImage) => modelImage.dataUrl),
+      );
+      if (metricsError) {
+        action.metadata = { ...action.metadata, metricsRecordingError: metricsError };
+      }
       options.actions.push(action);
       options.onAction?.(action);
       return result;
@@ -336,4 +362,36 @@ function recordTrace(
     const safeName = String(name).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 80) || "unknown";
     return `Trace recorder failed (${safeName}).`;
   }
+}
+
+function recordSessionMetrics(
+  recorder: SessionMetricsRecorder | undefined,
+  action: HarnessAction,
+  modelImageDataUrls?: readonly string[],
+) {
+  if (!recorder) return;
+  try {
+    recorder.recordAction(action, { modelImageDataUrls });
+  } catch (error) {
+    return metricsRecorderError(error);
+  }
+}
+
+function recordMetricsRetry(
+  recorder: SessionMetricsRecorder | undefined,
+  command: string,
+) {
+  if (!recorder) return;
+  try {
+    recorder.recordRetry(command);
+  } catch (error) {
+    return metricsRecorderError(error);
+  }
+}
+
+function metricsRecorderError(error: unknown) {
+  const name = error instanceof Error ? error.name : typeof error;
+  const safeName = String(name).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 80)
+    || "unknown";
+  return `Session metrics recorder failed (${safeName}).`;
 }

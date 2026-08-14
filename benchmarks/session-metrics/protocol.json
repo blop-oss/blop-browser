@@ -1,0 +1,48 @@
+{
+  "protocol_version": "1.0.0",
+  "name": "Blop Browser local session metrics protocol",
+  "purpose": "Measure cold-start and warm-resume latency plus exact harness-observable session metrics with an identical built CLI workflow against a loopback fixture.",
+  "repetitions": 3,
+  "target": {
+    "kind": "loopback-fixture",
+    "host": "127.0.0.1",
+    "path": "/session-metrics"
+  },
+  "configuration": {
+    "interface": "built-node-cli",
+    "entry": "dist/cli.js",
+    "browser": "chromium",
+    "executable_source": "playwright-bundled",
+    "headless": true,
+    "profile": "persistent-fresh-per-repetition",
+    "commands": ["open", "snapshot"]
+  },
+  "phases": {
+    "cold_start": {
+      "precondition": "No healthy daemon, profile, downloads, or artifacts exist for the fresh session.",
+      "timer_start": "Immediately before the parent process spawns the open command.",
+      "workflow": ["open-loopback-fixture", "snapshot-loopback-fixture"],
+      "timer_end": "After the parent process parses the snapshot response and validates its exact loopback URL and fixture marker."
+    },
+    "warm_resume": {
+      "precondition": "The same session daemon is healthy and ready, verified by status outside the timer.",
+      "timer_start": "Immediately before the parent process spawns the same open command.",
+      "workflow": ["open-loopback-fixture", "snapshot-loopback-fixture"],
+      "timer_end": "After the parent process parses the snapshot response and validates its exact loopback URL and fixture marker."
+    }
+  },
+  "measurement_scope": {
+    "latency_clock": "parent-process performance.now monotonic clock",
+    "payload_characters": "Unicode code points",
+    "payload_bytes": "UTF-8 bytes",
+    "tokens": "null unless exact provider-reported or tokenizer-specific counts are supplied by a host",
+    "outside_timers": ["readiness checks", "metrics export", "teardown"]
+  },
+  "limitations": [
+    "The loopback workflow measures this built CLI, browser, machine, and run configuration; it does not predict another host, browser interface, website, or machine.",
+    "Cold-start duration includes parent process spawn, daemon startup, browser launch, navigation, a second CLI process, and snapshot validation. Warm-resume duration includes the same two CLI commands and validation but reuses the verified-ready daemon and browser.",
+    "Session command durations cover elapsed harness dispatch, including time inside Playwright calls. Retry counts exclude Playwright-internal polling. Payload volumes cover serialized tool inputs and returned tool content; they exclude parent CLI envelope bytes and provider context outside tool calls.",
+    "The harness reports exact Unicode code points and UTF-8 bytes. It does not convert them into tokens or claim provider token usage.",
+    "Three local repetitions are bounded evidence, not a universal performance guarantee or a comparison with another interface."
+  ]
+}

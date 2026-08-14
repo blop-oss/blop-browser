@@ -3,6 +3,7 @@ import {
   BROWSER_TOOL_POLICY_CLASSES,
   browserDomainAllowed,
   createBrowserTools,
+  createSessionMetricsRecorder,
   createTraceRecorder,
   validateBrowserSessionPolicy,
   type BrowserApprovalRequest,
@@ -285,10 +286,12 @@ describe("browser session policy", () => {
       onRequest: () => { deniedRequests += 1; },
     }]);
     const trace = createTraceRecorder();
+    const metrics = createSessionMetricsRecorder();
     const fixture = await setupToolPage(`
       <a href="${deniedServer.url}/implicit">Leave site</a>
     `, [], {
       traceRecorder: trace,
+      sessionMetricsRecorder: metrics,
       safety: {
         actions: { pointer: "ask", navigation: "ask" },
         domains: { deny: [deniedServer.url] },
@@ -329,6 +332,24 @@ describe("browser session policy", () => {
           origin: deniedServer.url,
         },
       }));
+      expect(metrics.snapshot().commands).toMatchObject({
+        total: 2,
+        succeeded: 1,
+        failed: 1,
+        approvals: { requested: 2, approved: 2, denied: 0 },
+      });
+      expect(metrics.snapshot().commands.byCommand).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          command: "browser_click",
+          failed: 1,
+          approvals: { requested: 1, approved: 1, denied: 0 },
+        }),
+        expect.objectContaining({
+          command: "browser_goto",
+          succeeded: 1,
+          approvals: { requested: 1, approved: 1, denied: 0 },
+        }),
+      ]));
     } finally {
       await fixture.cleanup();
       await deniedServer.close();

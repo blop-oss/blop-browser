@@ -137,6 +137,29 @@ Browser does not claim universal correctness, reliability, speed, token
 efficiency, security, or superiority over another interface. Use the
 [benchmark protocol](../benchmarks/README.md) for workload-specific evidence.
 
+## Session metrics and local timing
+
+Session metrics retain bounded aggregates, not raw tool inputs or page output.
+They can still reveal workflow shape, command mix, approvals, timings, payload
+sizes, and image use. Review them before sharing. Provider token counts remain
+`null` because the harness cannot observe provider requests or tokenizer
+accounting; exact Unicode code points and UTF-8 bytes are not token estimates.
+
+Command durations surround harness dispatch, including time inside Playwright
+calls. Retry counts include only explicit harness-owned checks after the first
+attempt; they exclude Playwright-internal polling and retries made by a host,
+agent, model provider, or network stack. Active time is the sum of active
+recorder segments, not continuous browser uptime. An abrupt exit can lose an
+unpersisted idle tail.
+
+The loopback-only session metrics protocol measures three paired cold-start and
+warm-resume workflows for one clean build, installed Chromium, machine, and
+configuration. Its six raw durations and command deltas do not establish
+general startup speed, task completion, live-site behavior, model time, or
+performance on another system. Read the
+[session metrics contract](session-metrics.md) and
+[local protocol](../benchmarks/session-metrics/README.md) together.
+
 ## Next steps
 
 Use the [positioning proof](positioning-proof.md) to decide whether these

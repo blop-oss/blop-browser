@@ -25,10 +25,11 @@ The required measurement categories are:
   provider. Record `null` with an explanation when the provider doesn't expose
   usage; don't estimate it from characters.
 - **Wall-clock time:** monotonic elapsed time from task start to final verdict.
-- **Cold-start latency:** time from a stopped or absent browser service to the
-  first usable page observation.
-- **Warm-session latency:** time from a ready reused service to the first usable
-  isolated page observation.
+- **Cold-start latency:** parent-process monotonic time from spawning the first
+  command with no healthy service or session state to validating the fixed
+  workflow's usable page observation.
+- **Warm-session latency:** parent-process monotonic time for the identical
+  command workflow after readiness is verified outside the timer.
 - **Authenticated-session handling:** whether a prepared test account remains
   authenticated, needs an explicit restore, or fails. Never store credentials
   in the result.
@@ -48,6 +49,10 @@ Use these artifacts together:
   limitations, not a detection score. Its
   [`RESULTS.md`](detection/RESULTS.md) publishes a bounded six-attempt local
   result without committing raw fingerprint signals.
+- [`session-metrics/README.md`](session-metrics/README.md) for the loopback-only
+  three-pair cold-start and warm-resume protocol. It records exact command,
+  retry, approval, duration, character, and byte aggregates without inventing
+  provider token counts.
 - [`mind2web/README.md`](mind2web/README.md) for dataset preparation and live
   execution.
 - [`mind2web/core.ts`](mind2web/core.ts) for the agent-neutral task runner.
@@ -57,10 +62,11 @@ Use these artifacts together:
 - `test/benchmarks/mind2web.test.ts` for a deterministic local smoke test.
 - `test/session/` for warm-container reuse and isolation behavior.
 
-The output schema is broader than the current Mind2Web reporter on purpose.
-Cold-start phases, authenticated-session outcomes, and parallel isolation still
-need instrumentation or dedicated fixtures before a complete comparison record
-can be produced.
+The generic output schema is broader than either focused protocol. The local
+session metrics runner now measures one pinned cold/warm CLI workflow;
+authenticated-session outcomes, parallel isolation, and other interfaces still
+need separate controlled protocols before a complete comparison record can be
+produced.
 
 ## Run deterministic local checks
 
@@ -77,6 +83,18 @@ Run session-infrastructure checks separately:
 ```bash
 bun run test:session
 ```
+
+Run the deterministic three-pair local session metrics protocol after building
+the CLI:
+
+```bash
+bun run build
+bun run benchmark:session-metrics
+```
+
+Generated reports stay under `session-metrics/.results/`. Publish only a
+reviewed bounded summary that retains every repetition, failure, version,
+methodology field, and limitation.
 
 Those suites skip cleanly when Docker isn't available. A skip is an environment
 result, not evidence that warm-session or parallel isolation behavior passed.

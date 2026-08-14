@@ -257,6 +257,21 @@ screenshot or screencast positions. See the
 [action trace contract, redaction limits, and retention rules](docs/action-traces.md)
 before storing or sharing an export.
 
+Export bounded aggregate session metrics as text or JSON. Persistent sessions
+retain the latest aggregate across close and resume until `destroy`:
+
+```bash
+blop-browser --session docs-review metrics
+blop-browser --session docs-review metrics --json
+```
+
+Metrics report command outcomes, snapshots, explicit harness retries,
+approvals, durations, and exact Unicode code-point and UTF-8 payload volume.
+They retain no payload content and report provider token counts as unavailable,
+not as character-based estimates. Read the
+[session metrics contract and retention rules](docs/session-metrics.md) before
+using an aggregate as evidence.
+
 ## Connect to existing Chrome
 
 Attach over CDP to reuse an existing Chrome profile, cookies, and open tabs.
@@ -322,6 +337,7 @@ import { chromium } from "playwright";
 import {
   getBrowserSessionScope,
   createBrowserTools,
+  createSessionMetricsRecorder,
   createTraceRecorder,
   type HarnessAction,
 } from "@blopai/browser-harness";
@@ -336,6 +352,7 @@ const actions: HarnessAction[] = [];
 const traceRecorder = createTraceRecorder({
   identity: { sessionId: "demo", agentId: "accessibility-review" },
 });
+const sessionMetricsRecorder = createSessionMetricsRecorder();
 
 const tools = await createBrowserTools({
   page,
@@ -345,6 +362,7 @@ const tools = await createBrowserTools({
   screenshots: [],
   finishState: { status: null, reason: null },
   traceRecorder,
+  sessionMetricsRecorder,
   safety: {
     mode: "read-only",
   },
@@ -352,7 +370,8 @@ const tools = await createBrowserTools({
 
 const goto = tools.find((tool) => tool.name === "browser_goto")!;
 await goto.execute({ url: "https://example.com" });
-process.stdout.write(traceRecorder.timeline());
+process.stdout.write(`${traceRecorder.timeline()}\n`);
+process.stdout.write(`${sessionMetricsRecorder.json(true)}\n`);
 await browser.close();
 ```
 
@@ -480,6 +499,11 @@ Failed and policy-denied actions remain visible. Read the
 [action trace documentation](docs/action-traces.md) for the complete public
 contract and privacy limitations.
 
+The metrics API returns immutable bounded aggregates without retaining raw
+payload content. It counts only harness-observable retries and leaves provider
+tokens `null`. Read the [session metrics documentation](docs/session-metrics.md)
+for exact byte, character, duration, and resume semantics.
+
 The public API also exports `NativeToolBridge`, `startScreencast`, structured
 target helpers, `BrowserSafetyError`, the safety policy types, and warm Docker
 sessions. `startPlaywrightContainer()` and `startCamoufoxContainer()` keep their
@@ -539,6 +563,9 @@ The benchmark scaffold separates harness behavior from the agent/model that
 drives it. No benchmark result is claimed without a reproducible run record.
 
 Start with the [benchmark plan and result schema](benchmarks/README.md). The
+[local session metrics protocol](benchmarks/session-metrics/README.md) measures
+three paired cold-start and warm-resume workflows against a deterministic
+loopback fixture. The
 [Mind2Web live benchmark](benchmarks/mind2web/README.md) contains the normalized
 dataset utility, agent-neutral runner, Blop host adapter, deterministic local
 smoke test, and historical experiment ledger.

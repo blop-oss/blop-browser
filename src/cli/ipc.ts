@@ -15,6 +15,7 @@ export type RpcMethod =
   | "ping"
   | "status"
   | "export_trace"
+  | "export_metrics"
   | "list_tools"
   | "describe_tool"
   | "call_tool"
