@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 
 // One long-lived server container is shared by every run: `playwright
 // run-server` accepts many concurrent websocket clients and launches an
-// isolated browser per connection, so "stopping" a session only disconnects
+// separate browser per connection, so "stopping" a session only disconnects
 // the client and leaves the container warm for the next run.
 const DEFAULT_CONTAINER_NAME = "blop-playwright";
 const SERVER_PORT = 3000;
@@ -289,7 +289,7 @@ export async function ensurePlaywrightContainer(options: PlaywrightContainerOpti
 /**
  * Connects a new browser session to the shared Playwright container. Multiple
  * sessions (sequential or concurrent) attach to the same container; each gets
- * its own isolated browser instance inside it.
+ * its own browser instance inside it.
  *
  * The container's run-server launches a fresh browser per WebSocket client
  * using launch options it reads from the `x-playwright-launch-options` header

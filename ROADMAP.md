@@ -10,7 +10,8 @@ The current phase focuses on making the existing package dependable and easy to
 adopt without changing its public compatibility surface.
 
 - Stabilize the `blop-browser` CLI, named session lifecycle, and JSON contracts.
-- Keep semantic snapshots compact, scoped, and sufficient for reliable actions.
+- Keep semantic snapshots compact, scoped, and sufficient for the structured
+  actions covered by deterministic tests.
 - Expand deterministic coverage for Chromium, CDP attachment, Camoufox, and
   warm container sessions.
 - Publish reproducible benchmark protocols with failure classification and no

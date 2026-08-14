@@ -124,7 +124,7 @@ Keep these boundaries in mind:
   network, mounted volumes, Docker socket access, and host configuration define
   the effective boundary.
 - Camoufox is an optional third-party browser download with its own supply-chain
-  and behavior risks. Browser fingerprint changes don't guarantee anonymity or
+  and behavior risks. Browser fingerprint changes do not establish anonymity or
   avoidance of bot protections and must not be used to bypass site controls.
 - Screenshots, semantic snapshots, logs, and benchmark reports can contain
   personal or confidential application data.

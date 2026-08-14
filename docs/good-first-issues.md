@@ -29,7 +29,8 @@ Acceptance criteria:
 
 - Doctor output includes the validated effective timeout in milliseconds.
 - Default, custom, invalid, and below-minimum values have unit coverage.
-- Existing doctor fields and environment-variable behavior remain compatible.
+- This issue does not change existing doctor fields or documented
+  environment-variable behavior.
 - The configuration table links the value to daemon lifecycle behavior.
 
 Likely files: `src/cli.ts`, `test/cli/cli.test.ts`, and `README.md`.
@@ -53,7 +54,7 @@ Likely files: `skills/browser-harness/SKILL.md`, `src/tools/page.ts`, and
 ## Improve unavailable-browser doctor guidance
 
 Return actionable, browser-specific next steps when `doctor` can't find
-Chromium or Camoufox, while keeping JSON output stable for programs.
+Chromium or Camoufox, without changing documented JSON fields in this issue.
 
 Acceptance criteria:
 
@@ -105,7 +106,7 @@ session latency.
 
 Acceptance criteria:
 
-- Public session behavior and return values remain compatible.
+- This issue does not change documented session behavior or return fields.
 - Measurements use a monotonic clock and clearly name each phase.
 - Hooks are opt-in and add negligible work when unused.
 - Docker tests prove a reused container reports a warm path without asserting a

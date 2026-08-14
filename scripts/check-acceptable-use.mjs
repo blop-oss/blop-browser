@@ -70,15 +70,15 @@ for (const [pattern, message] of policyRequirements) {
 const browserCaveats = {
   "README.md": [
     /CDP access doesn't grant permission/i,
-    /doesn't grant permission[\s\S]*guarantee anonymity[\s\S]*guarantee that bot protections/i,
+    /doesn't grant permission[\s\S]*does not establish anonymity[\s\S]*avoidance of bot protections/i,
   ],
   "skills/browser-harness/SKILL.md": [
     /CDP access doesn't grant permission/i,
-    /doesn't grant permission[\s\S]*guarantee anonymity[\s\S]*guarantee that bot protection/i,
+    /doesn't grant permission[\s\S]*does not establish anonymity[\s\S]*avoidance of bot protection/i,
   ],
   "SECURITY.md": [
     /CDP access isn't evidence[\s\S]*authorized/i,
-    /fingerprint changes don't guarantee anonymity[\s\S]*must not be used to bypass/i,
+    /fingerprint changes do not establish anonymity[\s\S]*must not be used to bypass/i,
   ],
 };
 
@@ -87,7 +87,7 @@ for (const [file, patterns] of Object.entries(browserCaveats)) {
     requireMatch(
       file,
       pattern,
-      "must retain CDP and Camoufox permission and no-guarantee caveats",
+      "must retain CDP, Camoufox permission, and evidence-boundary caveats",
     );
   }
 }

@@ -16,6 +16,7 @@ or benchmark checks that skipped or weren't run.
 
 - [ ] `bun run format:check`
 - [ ] `bun run check:links`
+- [ ] `bun run check:claims`
 - [ ] `bun run lint`
 - [ ] `bun run typecheck`
 - [ ] Focused tests
@@ -33,5 +34,6 @@ private application data, or unsupported performance claims.
 
 - [ ] I added or updated regression coverage for behavior changes.
 - [ ] I updated public documentation and examples where needed.
+- [ ] New or changed public promises have direct evidence and stated limits.
 - [ ] Tool failures remain visible and output remains bounded.
 - [ ] I didn't edit generated `dist/` files manually.
