@@ -257,25 +257,37 @@ describe("local session metrics protocol", () => {
           line,
         ),
       );
+    const aggregateRows = results
+      .split("\n")
+      .filter((line) => /^\| [1-3]\s+\| 4 \(4\/0\)/.test(line));
 
-    expect(results).toContain(`| Protocol SHA-256`);
+    expect(results).toContain("| Protocol SHA-256");
     expect(results).toContain(`\`${protocolSha256}\``);
-    expect(results).toMatch(/\| Source commit\s+\| `[a-f0-9]{40}`/);
+    expect(results).toMatch(
+      /\| Source commit\s+\| `7259b0e462c716e73442c0ea5c8510982acb115c`/,
+    );
     expect(results).toMatch(/\| Working tree dirty\s+\| `false`/);
     expect(results).toMatch(
-      /\| Runnable `dist` JS SHA-256\s+\| `[a-f0-9]{64}`/,
+      /\| Runnable `dist` JS SHA-256\s+\| `2a839e6e27475f500cd28e47fe0dd49b617c1ddb9f588a53c3303f661dbb6a10`/,
     );
+    expect(results).toMatch(/\| Runnable `dist` JS files\s+\| `34`/);
+    expect(results).toMatch(/\| Runnable `dist` JS bytes\s+\| `358861`/);
     expect(results).toContain("`complete-dist-js-tree-v1`");
     expect(phaseRows).toHaveLength(6);
     expect(payloadRows).toHaveLength(6);
-    expect(phaseRows.map(resultRowIdentity)).toEqual(expectedPhaseIdentities);
-    expect(payloadRows.map(resultRowIdentity)).toEqual(expectedPhaseIdentities);
-    for (const row of phaseRows) {
-      const columns = row.split("|").map((column) => column.trim());
-      expect(columns[3]).toBe("`collected`");
-      expect(columns[4]).toMatch(/^\d+(?:\.\d+)?$/);
-      expect(columns[9]).toMatch(/^\d+(?:\.\d+)?$/);
-    }
+    expect(aggregateRows).toHaveLength(3);
+    const evidenceSha256 = createHash("sha256")
+      .update(
+        JSON.stringify({
+          phases: phaseRows.map(resultRowColumns),
+          payloads: payloadRows.map(resultRowColumns),
+          aggregates: aggregateRows.map(resultRowColumns),
+        }),
+      )
+      .digest("hex");
+    expect(evidenceSha256).toBe(
+      "940f9ce032722dd3a6cbe1b54cc12d13ad28d68d40b4d9dc3072311defc27d38",
+    );
     expect(results).toContain("Failures: **none**.");
     expect(packageManifest.files).toContain(
       "benchmarks/session-metrics/RESULTS.md",
@@ -286,18 +298,11 @@ describe("local session metrics protocol", () => {
   });
 });
 
-const expectedPhaseIdentities = [
-  "1:cold_start",
-  "1:warm_resume",
-  "2:cold_start",
-  "2:warm_resume",
-  "3:cold_start",
-  "3:warm_resume",
-];
-
-function resultRowIdentity(row: string) {
-  const columns = row.split("|").map((column) => column.trim());
-  return `${columns[1]}:${columns[2].replaceAll("`", "")}`;
+function resultRowColumns(row: string) {
+  return row
+    .split("|")
+    .slice(1, -1)
+    .map((column) => column.trim());
 }
 
 async function temporaryBuild() {
