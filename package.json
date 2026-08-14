@@ -1,6 +1,6 @@
 {
   "name": "@blopai/browser-harness",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Local browser tools and session infrastructure for agent hosts; no hosted service and no model or agent loop.",
   "license": "MIT",
   "type": "module",
