@@ -1,6 +1,10 @@
 import type { Page } from "playwright";
 
-export type RetryOptions = { timeoutMs?: number; intervalMs?: number };
+export type RetryOptions = {
+  timeoutMs?: number;
+  intervalMs?: number;
+  onRetry?: () => void;
+};
 
 export const DEFAULT_EXPECT_TIMEOUT_MS = 5000;
 const DEFAULT_INTERVAL_MS = 100;
@@ -25,6 +29,7 @@ export async function retryExpect<T>(check: () => Promise<T>, options?: RetryOpt
     } catch (error) {
       lastError = error;
       if (Date.now() >= deadline) break;
+      options?.onRetry?.();
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
   }
@@ -51,9 +56,13 @@ export async function assertWithRetry<T>(
   page: Page,
   input: Record<string, unknown>,
   check: () => Promise<T>,
+  onRetry?: () => void,
 ): Promise<T> {
   try {
-    return await retryExpect(check, { timeoutMs: timeoutFrom(input) });
+    return await retryExpect(check, {
+      timeoutMs: timeoutFrom(input),
+      onRetry,
+    });
   } catch (error) {
     throw await describeFailure(page, error);
   }

@@ -9,6 +9,8 @@ import {
   MAX_PERSISTED_TRACE_BYTES,
   persistCliTrace,
 } from "../../src/cli/trace-store.js";
+import { MAX_PERSISTED_METRICS_BYTES } from "../../src/cli/metrics-store.js";
+import { createSessionMetricsRecorder } from "../../src/session-metrics.js";
 import { createTraceRecorder } from "../../src/trace-recorder.js";
 import { startFixtureServer, type FixtureServer } from "../fixtures/server.js";
 
@@ -125,6 +127,8 @@ describe("blop-browser CLI", () => {
     const status = await runCli(["--session", session, "status", "--json"], runtimeDir);
     expect(status.result).toEqual(expect.objectContaining({
       active: true,
+      browser: "chromium",
+      browserVersion: expect.any(String),
       sessionScope: {
         mode: "persistent",
         storageScope: "session",
@@ -969,6 +973,191 @@ describe("blop-browser CLI", () => {
     }));
     expect(await pathExists(externalProfileDirectory)).toBe(true);
     expect(cdpChrome.process.exitCode).toBeNull();
+  }, 30_000);
+
+  test("exports bounded metrics across active, closed, resumed, and destroyed sessions", async () => {
+    server = await startFixtureServer([{
+      path: "/",
+      body: "<main><h1>Metrics fixture</h1><button>Continue</button></main>",
+    }]);
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-metrics-"));
+    session = `metrics-${process.pid}`;
+
+    const empty = await runCli([
+      "--session",
+      session,
+      "metrics",
+      "--json",
+    ], runtimeDir);
+    expect(empty.result).toMatchObject({
+      version: 1,
+      observedActiveSegments: 0,
+      commands: { total: 0 },
+      tokenUsage: {
+        inputTokens: null,
+        outputTokens: null,
+        totalTokens: null,
+        availability: "unavailable",
+      },
+    });
+    expect(await pathExists(join(runtimeDir, `${session}.json`))).toBe(false);
+
+    await runCli(["--session", session, "open", server.url, "--json"], runtimeDir);
+    const snapshot = await runCli([
+      "--session",
+      session,
+      "snapshot",
+      "--json",
+    ], runtimeDir);
+    const active = await runCli([
+      "--session",
+      session,
+      "metrics",
+      "--json",
+    ], runtimeDir);
+    expect(active.result).toMatchObject({
+      version: 1,
+      observedActiveSegments: 1,
+      commands: {
+        total: 2,
+        succeeded: 2,
+        failed: 0,
+        snapshots: 1,
+      },
+      payloads: {
+        snapshotOutput: {
+          utf8Bytes: Buffer.byteLength(snapshot.result?.content ?? ""),
+        },
+      },
+    });
+    expect(active.result?.commands.byCommand.map(
+      (entry: { command: string }) => entry.command,
+    )).toEqual(["browser_goto", "browser_snapshot"]);
+
+    await runCli(["--session", session, "close", "--json"], runtimeDir);
+    const offline = await runCli([
+      "--session",
+      session,
+      "metrics",
+      "--json",
+    ], runtimeDir);
+    expect(offline.result?.commands).toEqual(active.result?.commands);
+
+    const artifactDirectory = join(runtimeDir, `${session}-artifacts`);
+    const metricsPath = join(artifactDirectory, "browser-metrics.json");
+    expect((await Bun.file(metricsPath).stat()).mode & 0o777).toBe(0o600);
+    expect((await Bun.file(metricsPath).stat()).size)
+      .toBeLessThanOrEqual(MAX_PERSISTED_METRICS_BYTES);
+
+    await runCli(["--session", session, "snapshot", "--json"], runtimeDir);
+    const resumed = await runCli([
+      "--session",
+      session,
+      "metrics",
+      "--json",
+    ], runtimeDir);
+    expect(resumed.result).toMatchObject({
+      observedActiveSegments: 2,
+      commands: { total: 3, snapshots: 2 },
+      timing: {
+        definition: "sum of active recorder process segments",
+      },
+    });
+
+    await runCli(["--session", session, "destroy", "--json"], runtimeDir);
+    expect(await pathExists(artifactDirectory)).toBe(false);
+    const destroyed = await runCli([
+      "--session",
+      session,
+      "metrics",
+      "--json",
+    ], runtimeDir);
+    expect(destroyed.result).toMatchObject({
+      observedActiveSegments: 0,
+      commands: { total: 0 },
+    });
+  }, 30_000);
+
+  test("rejects oversized or malformed offline metrics artifacts", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-metrics-invalid-"));
+    session = `metrics-invalid-${process.pid}`;
+    const artifactDirectory = join(runtimeDir, `${session}-artifacts`);
+    const metricsPath = join(artifactDirectory, "browser-metrics.json");
+    await mkdir(artifactDirectory, { recursive: true });
+
+    await writeFile(metricsPath, "x".repeat(MAX_PERSISTED_METRICS_BYTES + 1));
+    const oversized = await runCliResult([
+      "--session",
+      session,
+      "metrics",
+      "--json",
+    ], runtimeDir);
+    expect(oversized.exitCode).toBe(1);
+    expect(oversized.response.error?.message)
+      .toContain("file exceeds the bounded metrics size");
+
+    await writeFile(metricsPath, JSON.stringify({
+      version: 1,
+      commands: { total: 9007199254740991 },
+    }));
+    const malformed = await runCliResult([
+      "--session",
+      session,
+      "metrics",
+      "--json",
+    ], runtimeDir);
+    expect(malformed.exitCode).toBe(1);
+    expect(malformed.response.error?.message)
+      .toContain("aggregate contract is invalid");
+
+    const recorder = createSessionMetricsRecorder();
+    recorder.recordAction({
+      name: "browser_click",
+      input: { target: "Continue" },
+      output: "Clicked Continue",
+      timestamp: "2026-08-14T00:00:00.000Z",
+      durationMs: 1,
+    });
+    const valid = structuredClone(recorder.snapshot());
+    const outcomeMismatch = structuredClone(valid);
+    outcomeMismatch.commands.byCommand[0]!.succeeded = 0;
+    outcomeMismatch.commands.byCommand[0]!.failed = 1;
+    await writeFile(metricsPath, JSON.stringify(outcomeMismatch));
+    const mismatchedOutcome = await runCliResult([
+      "--session",
+      session,
+      "metrics",
+      "--json",
+    ], runtimeDir);
+    expect(mismatchedOutcome.exitCode).toBe(1);
+    expect(mismatchedOutcome.response.error?.message)
+      .toContain("aggregate contract is invalid");
+
+    const aggregateMismatch = structuredClone(valid);
+    const bucket = aggregateMismatch.commands.byCommand[0]!;
+    bucket.duration = { totalMs: 2, minimumMs: 2, maximumMs: 2 };
+    bucket.payloads.toolOutput.characters += 1;
+    bucket.payloads.toolOutput.utf8Bytes += 1;
+    await writeFile(metricsPath, JSON.stringify(aggregateMismatch));
+    const mismatchedAggregate = await runCliResult([
+      "--session",
+      session,
+      "metrics",
+      "--json",
+    ], runtimeDir);
+    expect(mismatchedAggregate.exitCode).toBe(1);
+    expect(mismatchedAggregate.response.error?.message)
+      .toContain("aggregate contract is invalid");
+
+    const activeRead = await runCliResult([
+      "--session",
+      session,
+      "tools",
+      "--json",
+    ], runtimeDir);
+    expect(activeRead.exitCode).toBe(1);
+    expect(activeRead.response.error?.message)
+      .toContain("aggregate contract is invalid");
   }, 30_000);
 });
 

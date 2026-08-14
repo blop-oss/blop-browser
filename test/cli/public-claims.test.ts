@@ -180,6 +180,31 @@ describe("public claims evidence", () => {
     );
   });
 
+  test("requires the session metrics measurement limitations", async () => {
+    const limitations = await mutatedSurface(
+      "docs/known-limitations.md",
+      (source) => source
+        .replace("Provider token counts remain", "Token counts are")
+        .replace("sum of active\nrecorder segments", "session elapsed time")
+        .replace(
+          "loopback-only session metrics protocol",
+          "session metrics protocol",
+        ),
+    );
+    const result = await runChecker("--limitations", limitations);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Known limitations are missing required boundary: Provider token counts remain",
+    );
+    expect(result.stderr).toContain(
+      "Known limitations are missing required boundary: sum of active recorder segments",
+    );
+    expect(result.stderr).toContain(
+      "Known limitations are missing required boundary: loopback-only session metrics protocol",
+    );
+  });
+
   test("rejects an unregistered claim in the public-surface inventory", async () => {
     const document = await mutatedDocument((source) =>
       replaceTableCell(source, "GitHub repository details", 2, "`MAGIC`"),
@@ -216,6 +241,22 @@ describe("public claims evidence", () => {
     );
   });
 
+  test("requires the bounded session metrics evidence contract", async () => {
+    const source = await readFile(maintainedDocument, "utf8");
+
+    expect(source).toContain("| `SESSION_METRICS`");
+
+    const document = await mutatedDocument((current) =>
+      removeTableRow(current, "`SESSION_METRICS`"),
+    );
+    const result = await runChecker("--document", document);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Missing material promise: SESSION_METRICS",
+    );
+  });
+
   test("scans the shipped backend signal guide as a public claim surface", async () => {
     const guide = await mutatedSurface(
       "benchmarks/detection/README.md",
@@ -230,6 +271,38 @@ describe("public claims evidence", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
       "Backend signal guide contains unsupported public claim",
+    );
+  });
+
+  test("scans the session metrics guide as a public claim surface", async () => {
+    const guide = await mutatedSurface(
+      "benchmarks/session-metrics/README.md",
+      (source) => source.replace(
+        "This protocol measures cold-start and warm-resume latency",
+        "This fastest browser always works and measures latency",
+      ),
+    );
+    const result = await runChecker("--session-metrics-guide", guide);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Session metrics protocol guide contains unsupported public claim",
+    );
+  });
+
+  test("scans the published session metrics result as a public claim surface", async () => {
+    const results = await mutatedSurface(
+      "benchmarks/session-metrics/RESULTS.md",
+      (source) => source.replace(
+        "This reviewed result publishes all six timed phases",
+        "This fastest browser always works and publishes six timed phases",
+      ),
+    );
+    const result = await runChecker("--session-metrics-results", results);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Published session metrics result contains unsupported public claim",
     );
   });
 

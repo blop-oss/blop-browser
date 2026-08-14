@@ -32,6 +32,7 @@ const requiredClaims = [
   "BROWSER_MODES",
   "INTERFACES",
   "ACTION_TRACE",
+  "SESSION_METRICS",
   "SAFETY_CONTROLS",
   "CONTAINER_SERVICES",
   "SCREENCAST",
@@ -174,6 +175,18 @@ function parseArgs(args) {
       "detection",
       "RESULTS.md",
     ),
+    sessionMetricsGuide: resolve(
+      repositoryRoot,
+      "benchmarks",
+      "session-metrics",
+      "README.md",
+    ),
+    sessionMetricsResults: resolve(
+      repositoryRoot,
+      "benchmarks",
+      "session-metrics",
+      "RESULTS.md",
+    ),
   };
   const names = new Map([
     ["--document", "document"],
@@ -185,6 +198,8 @@ function parseArgs(args) {
     ["--screencast-source", "screencast"],
     ["--detection-guide", "detectionGuide"],
     ["--detection-results", "detectionResults"],
+    ["--session-metrics-guide", "sessionMetricsGuide"],
+    ["--session-metrics-results", "sessionMetricsResults"],
   ]);
   for (let index = 0; index < args.length; index += 2) {
     const option = args[index];
@@ -302,6 +317,14 @@ function validatePublicClaimSurfaces(paths) {
       "Published backend signal result",
       withoutFencedCode(readFile(paths.detectionResults)),
     ],
+    [
+      "Session metrics protocol guide",
+      withoutFencedCode(readFile(paths.sessionMetricsGuide)),
+    ],
+    [
+      "Published session metrics result",
+      withoutFencedCode(readFile(paths.sessionMetricsResults)),
+    ],
   ];
   const publicMarkdownPaths = [
     "ACCEPTABLE_USE.md",
@@ -317,6 +340,7 @@ function validatePublicClaimSurfaces(paths) {
     "docs/known-limitations.md",
     "docs/launch-checklist.md",
     "docs/positioning-proof.md",
+    "docs/session-metrics.md",
     "benchmarks/README.md",
     "benchmarks/mind2web/README.md",
     "benchmarks/mind2web/PROGRESS.md",
@@ -345,6 +369,7 @@ function validatePublicClaimSurfaces(paths) {
     "src/index.ts",
     "src/types.ts",
     "src/create-tools.ts",
+    "src/session-metrics.ts",
     "src/trace-recorder.ts",
     "src/session/scope.ts",
     "src/session/playwright-container.ts",
@@ -426,12 +451,16 @@ function validateRepositoryIntegration(paths, manifest) {
     failures.push("CI must run: bun run check:claims");
 
   const limitations = readFile(paths.limitations);
+  const normalizedLimitations = limitations.replace(/\s+/g, " ");
   for (const required of [
     "# Known limitations",
     "no model, planner, or autonomous agent loop",
     "not operating-system,",
     "not native Playwright tracing",
     "loopback-only backend signal protocol",
+    "Provider token counts remain",
+    "sum of active recorder segments",
+    "loopback-only session metrics protocol",
     "assign `allow`, `deny`, or `ask`",
     "top-level HTTP and HTTPS documents in Chromium",
     "rejects every new page or popup document",
@@ -440,7 +469,7 @@ function validateRepositoryIntegration(paths, manifest) {
     "does not claim universal correctness, reliability, speed",
     "[positioning proof](positioning-proof.md)",
   ]) {
-    if (!limitations.includes(required)) {
+    if (!normalizedLimitations.includes(required.replace(/\s+/g, " "))) {
       failures.push(
         `Known limitations are missing required boundary: ${required}`,
       );

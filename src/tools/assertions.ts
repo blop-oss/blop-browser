@@ -26,7 +26,7 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         required: ["text"],
       },
       promptSnippet: "- browser_expect_text: Assert one exact rendered phrase copied from browser_snapshot.text. Names and placeholders shown only in semanticSnapshot are not visible page text; verify those controls with browser_expect_visible and their ref. Whitespace is normalized. Auto-retries.",
-      execute: (input) => context.record("browser_expect_text", input, async () => {
+      execute: (input) => context.record("browser_expect_text", input, async ({ retry }) => {
         const text = String(input.text ?? "");
         const target = selectorFor(input.target);
         if (target) {
@@ -35,10 +35,10 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
             if (!normalizeVisibleText(actual).includes(normalizeVisibleText(text))) {
               throw new Error(`Expected ${target} to contain text "${text}", received "${truncate(actual)}"`);
             }
-          });
+          }, retry);
           return { content: `Found text in ${target}: ${text}` };
         }
-        await assertPageContainsText(context.page, input, text);
+        await assertPageContainsText(context.page, input, text, retry);
         return { content: `Found visible text: ${text}` };
       }),
     },
@@ -54,9 +54,9 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         required: ["text"],
       },
       promptSnippet: "- browser_wait_for_text: Wait for async UI text before continuing.",
-      execute: (input) => context.record("browser_wait_for_text", input, async () => {
+      execute: (input) => context.record("browser_wait_for_text", input, async ({ retry }) => {
         const text = String(input.text ?? "");
-        await assertPageContainsText(context.page, input, text);
+        await assertPageContainsText(context.page, input, text, retry);
         return { content: `Waited for text: ${text}` };
       }),
     },
@@ -154,14 +154,14 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         required: ["target", "value"],
       },
       promptSnippet: "- browser_expect_value: Assert the current value of a form field. Auto-retries.",
-      execute: (input) => context.record("browser_expect_value", input, async () => {
+      execute: (input) => context.record("browser_expect_value", input, async ({ retry }) => {
         const target = selectorFor(input.target);
         const expected = String(input.value ?? "");
         const actual = await assertWithRetry(context.page, input, async () => {
           const value = await locateTarget(context.page, input.target).inputValue({ timeout: READ_TIMEOUT_MS });
           if (value !== expected) throw new Error(`Expected ${target} value to be ${expected}, received ${value}`);
           return value;
-        });
+        }, retry);
         return { content: `${target} value matched ${expected}`, metadata: { value: actual } };
       }),
     },
@@ -178,14 +178,14 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         required: ["target"],
       },
       promptSnippet: "- browser_expect_checked: Assert checkbox/radio checked state; checked defaults to true. Auto-retries.",
-      execute: (input) => context.record("browser_expect_checked", input, async () => {
+      execute: (input) => context.record("browser_expect_checked", input, async ({ retry }) => {
         const target = selectorFor(input.target);
         const expected = input.checked === undefined ? true : Boolean(input.checked);
         const actual = await assertWithRetry(context.page, input, async () => {
           const checked = await locateTarget(context.page, input.target).isChecked({ timeout: READ_TIMEOUT_MS });
           if (checked !== expected) throw new Error(`Expected ${target} checked=${expected}, received ${checked}`);
           return checked;
-        });
+        }, retry);
         return { content: `${target} checked state matched ${expected}`, metadata: { checked: actual } };
       }),
     },
@@ -201,12 +201,12 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         required: ["target"],
       },
       promptSnippet: "- browser_expect_enabled: Assert that a target element is enabled. Auto-retries.",
-      execute: (input) => context.record("browser_expect_enabled", input, async () => {
+      execute: (input) => context.record("browser_expect_enabled", input, async ({ retry }) => {
         const target = selectorFor(input.target);
         await assertWithRetry(context.page, input, async () => {
           const enabled = await locateTarget(context.page, input.target).isEnabled({ timeout: READ_TIMEOUT_MS });
           if (!enabled) throw new Error(`Expected ${target} to be enabled`);
-        });
+        }, retry);
         return { content: `${target} is enabled` };
       }),
     },
@@ -222,12 +222,12 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         required: ["target"],
       },
       promptSnippet: "- browser_expect_disabled: Assert that a target element is disabled. Auto-retries.",
-      execute: (input) => context.record("browser_expect_disabled", input, async () => {
+      execute: (input) => context.record("browser_expect_disabled", input, async ({ retry }) => {
         const target = selectorFor(input.target);
         await assertWithRetry(context.page, input, async () => {
           const disabled = await locateTarget(context.page, input.target).isDisabled({ timeout: READ_TIMEOUT_MS });
           if (!disabled) throw new Error(`Expected ${target} to be disabled`);
-        });
+        }, retry);
         return { content: `${target} is disabled` };
       }),
     },
@@ -245,7 +245,7 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         required: ["target", "count"],
       },
       promptSnippet: "- browser_expect_count: Assert how many elements match a target (equal/at_least/at_most). Use for list sizes and result counts.",
-      execute: (input) => context.record("browser_expect_count", input, async () => {
+      execute: (input) => context.record("browser_expect_count", input, async ({ retry }) => {
         const target = selectorFor(input.target);
         const expected = Number(input.count);
         if (!Number.isInteger(expected) || expected < 0) throw new Error("count must be a non-negative integer.");
@@ -257,7 +257,7 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
             : count <= expected;
           if (!matches) throw new Error(`Expected ${target} to match ${comparison} ${expected} element(s), received ${count}`);
           return count;
-        });
+        }, retry);
         return { content: `${target} matched ${actual} element(s) (${comparison} ${expected})`, metadata: { count: actual, comparison, expected } };
       }),
     },
@@ -276,7 +276,7 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         required: ["target", "attribute"],
       },
       promptSnippet: "- browser_expect_attribute: Assert attributes like href, class, aria-*, or data-state, exactly or with contains=true.",
-      execute: (input) => context.record("browser_expect_attribute", input, async () => {
+      execute: (input) => context.record("browser_expect_attribute", input, async ({ retry }) => {
         const target = selectorFor(input.target);
         const attribute = String(input.attribute ?? "");
         const expected = input.value === undefined ? undefined : String(input.value);
@@ -288,7 +288,7 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
             throw new Error(`Expected ${target} attribute ${attribute} to ${contains ? "contain" : "equal"} "${expected}", received "${truncate(value)}"`);
           }
           return value;
-        });
+        }, retry);
         return { content: `${target} attribute ${attribute} matched`, metadata: { target, attribute, value: actual } };
       }),
     },
@@ -304,13 +304,13 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
         required: ["target"],
       },
       promptSnippet: "- browser_expect_focused: Assert a target element has keyboard focus, e.g. after Tab navigation or autofocus.",
-      execute: (input) => context.record("browser_expect_focused", input, async () => {
+      execute: (input) => context.record("browser_expect_focused", input, async ({ retry }) => {
         const target = selectorFor(input.target);
         await assertWithRetry(context.page, input, async () => {
           const focused = await locateTarget(context.page, input.target)
             .evaluate((element) => element === document.activeElement, undefined, { timeout: READ_TIMEOUT_MS });
           if (!focused) throw new Error(`Expected ${target} to be focused`);
-        });
+        }, retry);
         return { content: `${target} is focused` };
       }),
     },
@@ -336,7 +336,12 @@ export function createAssertionTools(context: BrowserToolContext): NativeToolBri
   ];
 }
 
-async function assertPageContainsText(page: Parameters<typeof assertWithRetry>[0], input: Record<string, unknown>, expected: string) {
+async function assertPageContainsText(
+  page: Parameters<typeof assertWithRetry>[0],
+  input: Record<string, unknown>,
+  expected: string,
+  onRetry?: () => void,
+) {
   await assertWithRetry(page, input, async () => {
     // getByText(...).first() can select a hidden duplicate even when another
     // matching node is visible. innerText reflects rendered page text and
@@ -345,7 +350,7 @@ async function assertPageContainsText(page: Parameters<typeof assertWithRetry>[0
     if (!normalizeVisibleText(actual).includes(normalizeVisibleText(expected))) {
       throw new Error(`Expected page to contain visible text "${expected}", received "${truncate(actual)}"`);
     }
-  });
+  }, onRetry);
 }
 
 function normalizeVisibleText(value: string) {

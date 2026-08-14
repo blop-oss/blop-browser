@@ -9,6 +9,15 @@ import {
   readPersistedCliTrace,
 } from "./trace-store.js";
 import {
+  cliMetricsPath,
+  persistCliMetrics,
+  readPersistedCliMetrics,
+} from "./metrics-store.js";
+import {
+  createSessionMetricsRecorder,
+  type HarnessSessionMetrics,
+} from "../session-metrics.js";
+import {
   createTraceRecorder,
   type HarnessTraceEvent,
   type HarnessTraceExport,
@@ -38,6 +47,7 @@ export type HarnessCliRuntime = {
   describeTool: (name: string) => Omit<NativeToolBridge, "execute">;
   status: () => Promise<Record<string, unknown>>;
   trace: () => HarnessTraceExport;
+  metrics: () => HarnessSessionMetrics;
   setExpiresAt: (expiresAt: string | null) => void;
   close: (reason?: "close" | "destroy" | "idle") => Promise<HarnessTraceEvent | undefined>;
 };
@@ -58,6 +68,9 @@ export async function createHarnessCliRuntime(
   const initialTrace = profileMode === "disposable"
     ? null
     : await readPersistedCliTrace(artifactDirectory);
+  const initialMetrics = profileMode === "disposable"
+    ? null
+    : await readPersistedCliMetrics(artifactDirectory);
   const headless = process.env.BLOP_BROWSER_HEADLESS !== "0";
   let launched: LaunchedBrowser;
   if (cdpEndpoint) launched = await connectChromeOverCdp(cdpEndpoint);
@@ -92,6 +105,7 @@ export async function createHarnessCliRuntime(
     launched.closeLauncher,
     sessionScope,
     initialTrace,
+    initialMetrics,
   );
 }
 
@@ -220,6 +234,7 @@ async function createRuntimeFromBrowser(
   closeLauncher?: () => Promise<void>,
   sessionScope?: BrowserSessionScope,
   initialTrace?: HarnessTraceExport | null,
+  initialMetrics?: HarnessSessionMetrics | null,
 ): Promise<HarnessCliRuntime> {
   const actions: HarnessAction[] = [];
   const browserLogs: HarnessBrowserLog[] = [];
@@ -235,9 +250,17 @@ async function createRuntimeFromBrowser(
     },
     ...(initialTrace ? { initialTrace } : {}),
   });
+  const sessionMetricsRecorder = createSessionMetricsRecorder(
+    initialMetrics ? { initialMetrics } : {},
+  );
   let tracePersistence = Promise.resolve();
   let tracePersistenceFailures = 0;
   let lastTracePersistenceError: string | undefined;
+  let metricsPersistence = Promise.resolve();
+  let metricsPersistenceFailures = 0;
+  let lastMetricsPersistenceError: string | undefined;
+  let metricsExportFailures = 0;
+  let lastMetricsExportError: string | undefined;
   const persistTrace = async () => {
     const json = traceRecorder.json(true);
     const timeline = traceRecorder.timeline();
@@ -248,8 +271,40 @@ async function createRuntimeFromBrowser(
       await tracePersistence;
     } catch (error) {
       tracePersistenceFailures += 1;
-      lastTracePersistenceError = safePersistenceError(error);
+      lastTracePersistenceError = safeEvidenceError("Trace persistence", error);
     }
+  };
+  const persistMetrics = async () => {
+    let json: string;
+    try {
+      json = sessionMetricsRecorder.json(true);
+    } catch (error) {
+      metricsExportFailures += 1;
+      lastMetricsExportError = safeEvidenceError("Metrics export", error);
+      const latestAction = actions.at(-1);
+      if (latestAction) {
+        latestAction.metadata = {
+          ...latestAction.metadata,
+          metricsExportError: lastMetricsExportError,
+        };
+      }
+      return;
+    }
+    metricsPersistence = metricsPersistence
+      .catch(() => undefined)
+      .then(() => persistCliMetrics(artifactDirectory, json));
+    try {
+      await metricsPersistence;
+    } catch (error) {
+      metricsPersistenceFailures += 1;
+      lastMetricsPersistenceError = safeEvidenceError(
+        "Metrics persistence",
+        error,
+      );
+    }
+  };
+  const persistEvidence = async () => {
+    await Promise.all([persistTrace(), persistMetrics()]);
   };
 
   const attachPage = (candidate: Page) => {
@@ -291,6 +346,7 @@ async function createRuntimeFromBrowser(
     browserLogs,
     safety: { mode: safetyMode },
     traceRecorder,
+    sessionMetricsRecorder,
   });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   recordSessionEvent(traceRecorder, "browser_session_start", page, {
@@ -299,7 +355,7 @@ async function createRuntimeFromBrowser(
     profileMode: currentSessionScope?.mode ?? "unknown",
     existingProfile: connection === "cdp",
   }, "Browser session started.");
-  await persistTrace();
+  await persistEvidence();
 
   return {
     call: async (name, input) => {
@@ -308,7 +364,7 @@ async function createRuntimeFromBrowser(
       try {
         return await tool.execute(input);
       } finally {
-        await persistTrace();
+        await persistEvidence();
       }
     },
     listTools: () => tools.map(({ name, description }) => ({ name, description })),
@@ -327,6 +383,7 @@ async function createRuntimeFromBrowser(
       return {
         session,
         browser: browserName,
+        browserVersion: resolvedBrowserVersion(browser, context),
         connection,
         cdpEndpoint: cdpEndpoint ?? null,
         pid: process.pid,
@@ -337,9 +394,15 @@ async function createRuntimeFromBrowser(
         traceEvents: trace.events.length,
         traceOmittedEvents: trace.omittedEvents,
         traceRecordingErrors: actions.filter((action) => action.metadata?.traceRecordingError).length,
+        metricsRecordingErrors: actions.filter((action) => action.metadata?.metricsRecordingError).length,
+        metricsExportFailures,
         tracePersistenceFailures,
+        metricsPersistenceFailures,
         lastTracePersistenceError: lastTracePersistenceError ?? null,
+        lastMetricsPersistenceError: lastMetricsPersistenceError ?? null,
+        lastMetricsExportError: lastMetricsExportError ?? null,
         traceFiles: cliTracePaths(artifactDirectory),
+        metricsFile: cliMetricsPath(artifactDirectory),
         finishState,
         artifactDirectory,
         sessionScope: currentSessionScope ? { ...currentSessionScope } : undefined,
@@ -347,6 +410,7 @@ async function createRuntimeFromBrowser(
       };
     },
     trace: () => traceRecorder.snapshot(),
+    metrics: () => sessionMetricsRecorder.snapshot(),
     setExpiresAt: (expiresAt) => {
       if (currentSessionScope) currentSessionScope = { ...currentSessionScope, expiresAt };
     },
@@ -360,7 +424,7 @@ async function createRuntimeFromBrowser(
         { reason, profileMode: currentSessionScope?.mode ?? "unknown" },
         reason === "destroy" ? "Browser session state destroyed." : "Browser session closed.",
       );
-      await persistTrace();
+      await persistEvidence();
       if (ownsContext) await context.close().catch(() => undefined);
       await browser?.close().catch(() => undefined);
       await closeLauncher?.().catch(() => undefined);
@@ -409,10 +473,21 @@ function pageUrl(page: Page) {
   }
 }
 
-function safePersistenceError(error: unknown) {
+function safeEvidenceError(operation: string, error: unknown) {
   const name = error instanceof Error ? error.name : typeof error;
   const safeName = String(name).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 80) || "unknown";
-  return `Trace persistence failed (${safeName}).`;
+  return `${operation} failed (${safeName}).`;
+}
+
+function resolvedBrowserVersion(
+  browser: Browser | undefined,
+  context: BrowserContext,
+) {
+  try {
+    return browser?.version() ?? context.browser()?.version() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function messageOf(error: unknown) {

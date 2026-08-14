@@ -248,6 +248,7 @@ persistent session closes:
 ```bash
 blop-browser --session research trace
 blop-browser --session research trace --json
+blop-browser --session research metrics --json
 ```
 
 Trace files are bounded but can still contain sensitive page output, visited
@@ -255,6 +256,14 @@ origins, target labels, approval decisions, and workflow intent. Review them
 before sharing. Persistent sessions retain trace artifacts until `destroy`;
 disposable sessions remove them on close or idle shutdown. Trace redaction is a
 mitigation, not proof that arbitrary browser output contains no secrets.
+
+Session metrics retain bounded command, snapshot, retry, approval, duration,
+character, and byte aggregates without retaining payload content. Their
+`characters` fields count Unicode code points, and provider token fields remain
+`null` when the harness cannot observe them. Read the canonical
+[session metrics contract](https://github.com/blop-oss/blop-browser/blob/master/docs/session-metrics.md)
+before using an aggregate as performance evidence. Metrics follow the same
+persistent, disposable, and `destroy` artifact lifecycle as traces.
 
 For an attached Chrome session, `destroy` preserves the external profile. The
 daemon also exits after its idle timeout. Run `blop-browser doctor` when browser

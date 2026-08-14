@@ -3,6 +3,7 @@ dist/
 .harness-screenshots/
 .blop-test-screenshots/
 benchmarks/detection/.results/
+benchmarks/session-metrics/.results/
 *.log
 .env
 .DS_Store

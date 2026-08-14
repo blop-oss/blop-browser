@@ -51,7 +51,7 @@ export function createNavigationTools(context: BrowserToolContext): NativeToolBr
         required: ["url"],
       },
       promptSnippet: "- browser_expect_url: Prefer this after dedicated-view navigation when the exact URL is already reported. Assert current URL, using exact=false for contains checks. Auto-retries.",
-      execute: (input) => context.record("browser_expect_url", input, async () => {
+      execute: (input) => context.record("browser_expect_url", input, async ({ retry }) => {
         const expected = String(input.url ?? "");
         const exact = Boolean(input.exact);
         const actual = await assertWithRetry(context.page, input, async () => {
@@ -60,7 +60,7 @@ export function createNavigationTools(context: BrowserToolContext): NativeToolBr
             throw new Error(`Expected URL ${exact ? "to equal" : "to contain"} ${expected}, received ${url}`);
           }
           return url;
-        });
+        }, retry);
         return { content: `URL matched ${expected}`, metadata: { url: actual } };
       }),
     },
