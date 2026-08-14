@@ -49,8 +49,8 @@ Blop Browser differs from general-purpose browser automation by combining:
 - Existing Chrome and authorized profile reuse over CDP.
 - An explicit automation-to-human control handoff for active headed or attached
   sessions.
-- Optional Camoufox sessions for compatibility testing across browser
-  fingerprints.
+- Optional anti-bot mode, off by default, that launches Camoufox to change
+  browser-observable fingerprints.
 - A public TypeScript API for embedding the same tools in your own agent host.
 - Warm Playwright Chromium and Camoufox Docker browser services.
 - An agent-neutral CLI, machine-readable JSON output, and an installable agent
@@ -118,8 +118,9 @@ Install the Blop Browser skill and set up the blop-browser CLI:
    - Headless Chromium (agents/CI): blop-browser config --mode chromium-headless
    - Visible Chromium (local debugging): blop-browser config --mode chromium-headed
    - Existing Chrome over CDP: blop-browser config --mode chrome-cdp --cdp-endpoint http://127.0.0.1:9222
-   - Camoufox headless: blop-browser config --mode camoufox-headless
-   - Camoufox visible: blop-browser config --mode camoufox-headed
+    - Camoufox headless: blop-browser config --mode camoufox-headless
+    - Camoufox visible: blop-browser config --mode camoufox-headed
+    - Optional anti-bot: blop-browser config --anti-bot on
 6. If the mode is managed Chromium or Camoufox, confirm the setup with:
    blop-browser open https://example.com && blop-browser snapshot
 7. If the mode is chrome-cdp, get my explicit approval to access that Chrome
@@ -157,25 +158,29 @@ blop-browser config --mode chrome-cdp \
   --cdp-endpoint http://127.0.0.1:9222
 blop-browser config --mode camoufox-headless
 blop-browser config --mode camoufox-headed
+blop-browser config --anti-bot on
+blop-browser config --anti-bot off
 ```
 
-An explicit `--browser`, `--cdp-endpoint`, `--profile`, `--headless`, or
-`--headed` option overrides the saved default for a new session. Environment
-variables continue to override saved configuration. A CDP endpoint selects the
-target, but it doesn't authorize profile access: the command that starts the
-attachment must also include `--attach-existing`.
+An explicit `--browser`, `--cdp-endpoint`, `--profile`, `--headless`,
+`--headed`, or `--anti-bot` option overrides the saved default for a new
+session. Environment variables continue to override saved configuration. A CDP
+endpoint selects the target, but it doesn't authorize profile access: the
+command that starts the attachment must also include `--attach-existing`.
 
-Choose the backend from the workflow, not from a promise of avoiding
-detection:
+Anti-bot mode is off by default. Enabling it launches Camoufox for authorized
+workflows that need reduced automation signals. Choose the backend from the
+workflow, not from a promise that a site will accept the session:
 
 - Use managed Chromium for deterministic testing of local fixtures, staging
   environments, and applications you control.
 - Use a dedicated Chrome profile over CDP when an authorized workflow requires
   its real Chrome state. Profile history, extensions, login state, and the
   installed Chrome version make CDP runs less controlled as comparisons.
-- Use Camoufox only for authorized Firefox and fingerprint-compatibility
-  coverage. Its generated fingerprint can vary between otherwise identical
-  launches. This does not establish anonymity or avoidance of site controls.
+- Enable optional anti-bot mode, or select Camoufox directly, only for
+  authorized workflows. Its generated fingerprint can vary between otherwise
+  identical launches. This does not establish anonymity or avoidance of site
+  controls.
 
 The [local backend signal protocol](benchmarks/detection/README.md) records
 versions, launch constraints, bounded browser-observable signals, failures, and
@@ -442,22 +447,29 @@ profile and remote-side logs remain outside harness deletion.
 ## Use Camoufox
 
 Camoufox is an optional Firefox-based browser that changes browser-observable
-fingerprint characteristics. Chromium remains the default; use it for
-deterministic testing of applications you control.
+fingerprint characteristics. Chromium remains the default, and anti-bot mode
+stays off until you enable it. Use Chromium for deterministic testing of
+applications you control.
 
 ```bash
 blop-browser install camoufox
-blop-browser --session compatibility-test \
-  --browser camoufox open https://staging.example.com
+blop-browser config --anti-bot on
+blop-browser --session authorized-app \
+  --anti-bot open https://staging.example.com
 ```
+
+`--anti-bot`, `--anti-bot on`, `BLOP_BROWSER_ANTI_BOT=on`, and
+`blop-browser config --anti-bot on` all select Camoufox. `--anti-bot off`
+returns later sessions to Chromium. You can also pass `--browser camoufox` for
+the same backend.
 
 The Camoufox browser binary is a separate third-party download. Review the
 [Camoufox project](https://github.com/daijro/camoufox) before using it in your
-environment. Use it only for authorized compatibility testing. It doesn't grant
-permission to access a site, and it does not establish anonymity or avoidance
-of bot protections and other site controls. If a site denies access,
-stop instead of switching fingerprints to bypass the denial. See the
-[acceptable-use policy](ACCEPTABLE_USE.md).
+environment. Use it only for authorized workflows. It doesn't grant permission
+to access a site, and it does not establish anonymity or avoidance of bot
+protections and other site controls. If a site denies access you are not
+authorized to have, stop instead of changing accounts or network routes. See
+the [acceptable-use policy](ACCEPTABLE_USE.md).
 
 ## Embed the TypeScript API
 
@@ -680,6 +692,7 @@ Explicit CLI flags take precedence where both forms exist.
 | --------------------------------------- | -------------------------------- | ----------------------------------------------------- |
 | `BLOP_BROWSER_SESSION`                  | `default`                        | Session name                                          |
 | `BLOP_BROWSER`                          | `chromium`                       | `chromium` or `camoufox`                              |
+| `BLOP_BROWSER_ANTI_BOT`                 | `off`                            | `on` launches Camoufox; `off` keeps Chromium          |
 | `BLOP_BROWSER_HEADLESS`                 | `1`                              | Set to `0` for a visible browser                      |
 | `BLOP_BROWSER_CDP_ENDPOINT`             | Unset                            | Existing Chrome CDP URL; doesn't authorize attachment |
 | `BLOP_BROWSER_PROFILE`                  | `persistent`                     | `persistent` or `disposable` managed profile mode     |

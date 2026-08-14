@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   buildMind2WebPrompt,
   loadMind2WebTasks,
+  resolveMind2WebAntiBot,
   runMind2WebTask,
   type Mind2WebAgentAdapter,
   type Mind2WebTask,
@@ -50,10 +51,11 @@ describe("Mind2Web benchmark", () => {
     };
 
     try {
-      const result = await runMind2WebTask({
-        task: task({ start_url: server.url }),
-        agent,
-      });
+       const result = await runMind2WebTask({
+         task: task({ start_url: server.url }),
+         agent,
+         antiBot: "off",
+       });
       expect(result.status).toBe("passed");
       expect(result.agent).toBe("deterministic-test-agent");
       expect(result.actions.map((action) => action.name)).toEqual([
@@ -76,6 +78,22 @@ describe("Mind2Web benchmark", () => {
       });
     } finally {
       await server.close();
+    }
+  });
+
+  test("defaults live Mind2Web anti-bot to on", () => {
+    const previous = process.env.BLOP_BROWSER_ANTI_BOT;
+    const previousMind2Web = process.env.MIND2WEB_ANTI_BOT;
+    delete process.env.BLOP_BROWSER_ANTI_BOT;
+    delete process.env.MIND2WEB_ANTI_BOT;
+    try {
+      expect(resolveMind2WebAntiBot()).toBe("on");
+      expect(resolveMind2WebAntiBot("off")).toBe("off");
+    } finally {
+      if (previous === undefined) delete process.env.BLOP_BROWSER_ANTI_BOT;
+      else process.env.BLOP_BROWSER_ANTI_BOT = previous;
+      if (previousMind2Web === undefined) delete process.env.MIND2WEB_ANTI_BOT;
+      else process.env.MIND2WEB_ANTI_BOT = previousMind2Web;
     }
   });
 

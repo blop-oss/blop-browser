@@ -86,21 +86,38 @@ export function buildMind2WebPrompt(task: Mind2WebTask): string {
   );
 }
 
+export function resolveMind2WebAntiBot(value?: string): "off" | "on" {
+  const raw = value
+    ?? process.env.BLOP_BROWSER_ANTI_BOT
+    ?? process.env.MIND2WEB_ANTI_BOT
+    ?? "on";
+  if (raw === "off" || raw === "on") return raw;
+  throw new Error('Mind2Web anti-bot must be "on" or "off".');
+}
+
 export async function runMind2WebTask(options: {
   task: Mind2WebTask;
   agent: Mind2WebAgentAdapter;
   browser?: Browser;
+  antiBot?: "off" | "on";
   screenshotDir?: string;
 }): Promise<Mind2WebTaskResult> {
   const startedAt = Date.now();
-  const ownsBrowser = !options.browser;
-  const browser = options.browser ?? await chromium.launch({ headless: true });
+  const antiBot = options.antiBot ?? resolveMind2WebAntiBot();
+  let ownedBrowser: Browser | undefined;
   let context: BrowserContext | undefined;
   const sessionMetricsRecorder = createSessionMetricsRecorder();
 
   try {
-    context = await browser.newContext({ bypassCSP: true });
-    const page = await context.newPage();
+    if (options.browser) {
+      context = await options.browser.newContext({ bypassCSP: true });
+    } else if (antiBot === "on") {
+      context = await launchMind2WebCamoufox();
+    } else {
+      ownedBrowser = await chromium.launch({ headless: true });
+      context = await ownedBrowser.newContext({ bypassCSP: true });
+    }
+    const page = context.pages().at(-1) ?? await context.newPage();
     const actions: HarnessAction[] = [];
     const finishState: FinishState = { status: null, reason: null };
     const tools = await createBrowserTools({
@@ -131,6 +148,18 @@ export async function runMind2WebTask(options: {
     };
   } finally {
     await context?.close();
-    if (ownsBrowser) await browser.close();
+    await ownedBrowser?.close();
   }
+}
+
+async function launchMind2WebCamoufox(): Promise<BrowserContext> {
+  const { Camoufox } = await import("camoufox-js");
+  const executablePath = process.env.BLOP_BROWSER_CAMOUFOX_EXECUTABLE_PATH;
+  const context = await Camoufox({
+    headless: process.env.BLOP_BROWSER_HEADLESS !== "0",
+    bypassCSP: true,
+    viewport: null,
+    ...(executablePath ? { executable_path: executablePath } : {}),
+  });
+  return context as BrowserContext;
 }

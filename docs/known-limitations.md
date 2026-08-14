@@ -122,12 +122,13 @@ cookies, accounts, and tabs. `--attach-existing` makes the capability choice
 explicit, but it does not prove account-owner or website authorization. Use a
 dedicated localhost profile when possible.
 
-Camoufox is an optional third-party Firefox-based browser for authorized
-fingerprint compatibility testing. It does not provide anonymity, permission,
-or guaranteed avoidance of bot protections and site controls. The managed CLI
-does not offer Playwright's complete first-party Chromium, Firefox, and WebKit
-engine matrix. Use the [browser selection guidance](positioning-proof.md) when
-you need broader Playwright features.
+Camoufox is an optional third-party Firefox-based browser. Optional anti-bot
+mode is off by default and launches Camoufox when enabled. It does not provide
+anonymity, permission, or guaranteed avoidance of bot protections and site
+controls. The managed CLI does not offer Playwright's complete first-party
+Chromium, Firefox, and WebKit engine matrix. Use the
+[browser selection guidance](positioning-proof.md) when you need broader
+Playwright features.
 
 ## Backend signal evidence
 

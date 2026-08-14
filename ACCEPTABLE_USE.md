@@ -21,8 +21,12 @@ Before you automate a website or account, confirm all of these conditions:
 
 Prefer local fixtures, staging environments, test tenants, and dedicated test
 accounts. Stop when a site presents a CAPTCHA, rate-limit response, access
-denial, or other control that withholds permission. Don't change browsers,
-fingerprints, accounts, addresses, or network routes to defeat that control.
+denial, or other control that withholds permission you do not have. Don't
+change accounts, addresses, or network routes to defeat that control.
+
+Optional anti-bot mode is off by default. You may enable it for authorized
+workflows that need reduced automation signals. Enabling it does not grant
+permission, solve a CAPTCHA, or authorize access you do not already have.
 
 ## Prohibited uses
 
@@ -30,7 +34,7 @@ Don't use Blop Browser to perform or assist with these activities:
 
 - Accessing an account, system, or data without permission.
 - Evading CAPTCHAs, rate limits, bans, paywalls, authentication, robots
-  directives, or other technical and policy controls.
+  directives, or other technical and policy controls without authorization.
 - Credential theft, phishing, malware delivery, fraud, spam, harassment, or
   surveillance.
 - Deceptive impersonation, fake engagement, coordinated account creation, or
@@ -41,10 +45,11 @@ Don't use Blop Browser to perform or assist with these activities:
   education, health care, or legal services without appropriate authorization
   and human oversight.
 
-Chrome DevTools Protocol (CDP) access and browser fingerprint options don't
-grant permission to access a site. Camoufox can change browser-observable
-characteristics, but Blop Browser doesn't promise that it will avoid bot
-detection or any other site control. Don't use either feature as a bypass.
+Chrome DevTools Protocol (CDP) access and optional anti-bot mode don't grant
+permission to access a site. Anti-bot mode launches Camoufox to change
+browser-observable fingerprints. Blop Browser doesn't promise that this will
+avoid bot detection or any other site control. Use either feature only on
+targets you are authorized to automate.
 
 ## Report abuse
 

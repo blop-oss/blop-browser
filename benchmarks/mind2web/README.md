@@ -78,19 +78,26 @@ export BLOP_AGENT_PROVIDER=ollama
 export BLOP_AGENT_MODEL=gemma4:31b-cloud
 export BLOP_AGENT_BASE_URL=http://localhost:11434/v1
 export BLOP_AGENT_API_KEY=ollama
+export BLOP_BROWSER_ANTI_BOT=on
 
 BENCH_WEBSITE=weather BENCH_LIMIT=1 bun run bench:blop
 ```
 
+Live Mind2Web sites commonly classify automated Chromium as a bot.
+Anti-bot mode is on for this benchmark: `bench:blop` launches Camoufox,
+and `runMind2WebTask` defaults to the same backend. Pass `antiBot: "off"`
+or `BLOP_BROWSER_ANTI_BOT=off` only for local fixtures.
+
 The adapter supports these filters:
 
-| Variable              | Effect                              |
-| --------------------- | ----------------------------------- |
-| `MIND2WEB_TASKS_PATH` | Path to normalized `tasks.json`.    |
-| `BENCH_TASK_ID`       | Exact Mind2Web task ID.             |
-| `BENCH_LIMIT`         | Maximum number of tasks.            |
-| `BENCH_SPLIT`         | Exact split name.                   |
-| `BENCH_WEBSITE`       | Case-insensitive website substring. |
+| Variable                | Effect                                                 |
+| ----------------------- | ------------------------------------------------------ |
+| `MIND2WEB_TASKS_PATH`   | Path to normalized `tasks.json`.                       |
+| `BENCH_TASK_ID`         | Exact Mind2Web task ID.                                |
+| `BENCH_LIMIT`           | Maximum number of tasks.                               |
+| `BENCH_SPLIT`           | Exact split name.                                      |
+| `BENCH_WEBSITE`         | Case-insensitive website substring.                    |
+| `BLOP_BROWSER_ANTI_BOT` | `on` (default) launches Camoufox; `off` uses Chromium. |
 
 Results are written to `.mind2web/blop/`.
 

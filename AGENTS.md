@@ -181,8 +181,10 @@ BENCH_TASK_ID=<task-id> \
 BLOP_AGENT_PROVIDER=ollama \
 BLOP_AGENT_MODEL=gemma4:31b-cloud \
 BLOP_AGENT_BASE_URL=http://localhost:11434/v1 \
+BLOP_BROWSER_ANTI_BOT=on \
 bun run /path/to/blop/src/cli/index.ts test \
   benchmarks/mind2web/adapters/blop.blop.ts \
+  --browser camoufox \
   --report-dir benchmarks/mind2web/.mind2web/local-run \
   --progress-file benchmarks/mind2web/.mind2web/local-progress.ndjson \
   --max-steps 60 \

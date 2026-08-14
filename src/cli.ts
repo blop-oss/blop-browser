@@ -102,7 +102,7 @@ Usage:
   blop-browser data delete SESSION [--json]
   blop-browser skill show
   blop-browser skill install --target agents|claude|opencode|all [--scope project|user]
-  blop-browser config [--mode MODE] [--json]
+  blop-browser config [--mode MODE] [--anti-bot on|off] [--json]
   blop-browser install camoufox [--json]
   blop-browser update [--install] [--json]
   blop-browser doctor [--json]
@@ -117,6 +117,7 @@ Global options:
   --telemetry off               First-party harness telemetry is disabled
   --headless                    Run a new managed browser without a window
   --headed                      Run a new managed browser with a window
+  --anti-bot [on|off]           Optional Camoufox fingerprinting; off by default
   --json                         Print a machine-readable response envelope
 
 The first tool call starts a persistent local daemon. Later invocations with the
@@ -138,6 +139,8 @@ type ParsedArgs = {
   headless: boolean;
   json: boolean;
   telemetry: "off";
+  antiBot: AntiBotMode;
+  requestedAntiBot?: AntiBotMode;
   command: string;
   rest: string[];
 };
@@ -151,12 +154,14 @@ const INSTALL_MODES = [
 ] as const;
 
 type InstallMode = typeof INSTALL_MODES[number];
+type AntiBotMode = "off" | "on";
 
 type BrowserConfig = {
   version: 1;
   mode: InstallMode;
   cdpEndpoint?: string;
   telemetry: "off";
+  antiBot: AntiBotMode;
 };
 
 export async function main(argv = process.argv.slice(2)) {
@@ -171,7 +176,7 @@ export async function main(argv = process.argv.slice(2)) {
     json: parsed.json,
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
   })) {
-    await runConfigCommand({ ...parsed, command: "config", rest: [] }, configPath);
+    await runConfigCommand({ ...parsed, command: "config", rest: [] }, configPath, config);
     config = await readBrowserConfig(configPath);
     parsed = parseArgs(argv, config);
   }
@@ -201,7 +206,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   if (parsed.command === "config") {
-    await runConfigCommand(parsed, configPath);
+    await runConfigCommand(parsed, configPath, config);
     return;
   }
 
@@ -273,6 +278,7 @@ export async function main(argv = process.argv.slice(2)) {
         executablePath: executablePath ?? null,
         headless: parsed.connection === "cdp" ? null : process.env.BLOP_BROWSER_HEADLESS !== "0",
         cdpEndpoint: parsed.cdpEndpoint ?? null,
+        antiBot: parsed.antiBot,
       },
       browsers: {
         chromium: { available: Boolean(chromiumPath), executablePath: chromiumPath ?? null },
@@ -287,6 +293,7 @@ export async function main(argv = process.argv.slice(2)) {
         path: configPath,
         mode: config?.mode ?? null,
         telemetry: parsed.telemetry,
+        antiBot: parsed.antiBot,
       },
       runtimeDirectory: pathsForSession(parsed.session).directory,
       sessionScope,
@@ -642,13 +649,25 @@ async function runPackageUpdateCheck(current: string): Promise<PackageUpdateRepo
   });
 }
 
-async function runConfigCommand(parsed: ParsedArgs, configPath: string) {
+async function runConfigCommand(
+  parsed: ParsedArgs,
+  configPath: string,
+  existing: BrowserConfig | null,
+) {
   const requestedMode = optionValue(parsed.rest, "--mode");
   const selection = requestedMode
     ? { mode: parseInstallMode(requestedMode), cdpEndpoint: parsed.cdpEndpoint }
+    : parsed.requestedAntiBot
+    ? {
+      mode: modeForAntiBot(existing?.mode ?? defaultModeForAntiBot(parsed.antiBot), parsed.antiBot),
+      cdpEndpoint: parsed.cdpEndpoint ?? existing?.cdpEndpoint,
+    }
     : await promptForInstallMode(parsed.json);
-  const settings = settingsForMode(selection.mode);
-  const cdpEndpoint = selection.mode === "chrome-cdp"
+  const antiBot = parsed.requestedAntiBot
+    ?? (selection.mode.startsWith("camoufox") ? "on" : "off");
+  const mode = modeForAntiBot(selection.mode, antiBot);
+  const settings = settingsForMode(mode);
+  const cdpEndpoint = mode === "chrome-cdp"
     ? parseCdpEndpoint(selection.cdpEndpoint ?? "http://127.0.0.1:9222")
     : undefined;
 
@@ -669,19 +688,21 @@ async function runConfigCommand(parsed: ParsedArgs, configPath: string) {
 
   const config: BrowserConfig = {
     version: 1,
-    mode: selection.mode,
+    mode,
     telemetry: parsed.telemetry,
+    antiBot,
     ...(cdpEndpoint ? { cdpEndpoint } : {}),
   };
   await writeBrowserConfig(configPath, config);
   printResponse(okResponse("config", {
     configured: true,
     configPath,
-    mode: selection.mode,
+    mode,
     browser: settings.browser,
     headless: settings.headless,
     connection: settings.connection,
     telemetry: parsed.telemetry,
+    antiBot,
     ...(cdpEndpoint ? { cdpEndpoint } : {}),
     ...(executablePath ? { executablePath, downloaded } : {}),
   }), parsed.json);
@@ -698,7 +719,7 @@ export function shouldRunFirstConfig(input: {
   if (configured || json || !interactive) return false;
   if (["", "help", "--help", "-h", "config", "install", "update", "skill", "data", "doctor", "status", "trace", "metrics", "takeover", "close", "destroy", "_daemon"]
     .includes(command)) return false;
-  return !["--browser", "--cdp-endpoint", "--attach-existing", "--headless", "--headed"]
+  return !["--browser", "--cdp-endpoint", "--attach-existing", "--headless", "--headed", "--anti-bot"]
     .some((option) => argv.includes(option));
 }
 
@@ -714,8 +735,8 @@ async function promptForInstallMode(json: boolean): Promise<{ mode: InstallMode;
       "1. Playwright Chromium, headless (recommended for agents and CI)",
       "2. Playwright Chromium, visible (local debugging)",
       "3. Existing Chrome over CDP (reuse its profile, cookies, and tabs)",
-      "4. Camoufox, headless (fingerprint compatibility; downloads a third-party browser)",
-      "5. Camoufox, visible (fingerprint compatibility; downloads a third-party browser)",
+      "4. Camoufox, headless (optional anti-bot; downloads a third-party browser)",
+      "5. Camoufox, visible (optional anti-bot; downloads a third-party browser)",
     ].join("\n")}\n\n`);
     const answer = (await prompt.question("Mode [1]: ")).trim() || "1";
     const mode = INSTALL_MODES[Number(answer) - 1];
@@ -753,17 +774,27 @@ function parseArgs(argv: string[], config: BrowserConfig | null): ParsedArgs {
       ?? "off",
   );
   removeOption(args, "--telemetry");
+  const cliAntiBot = takeOptionalEnum(args, "--anti-bot", ["on", "off"] as const, "on");
+  const requestedAntiBot = cliAntiBot
+    ?? (process.env.BLOP_BROWSER_ANTI_BOT
+      ? parseAntiBotMode(process.env.BLOP_BROWSER_ANTI_BOT)
+      : undefined);
+  const antiBot = requestedAntiBot ?? config?.antiBot ?? "off";
   const headlessFlag = removeFlag(args, "--headless");
   const headedFlag = removeFlag(args, "--headed");
   if (headlessFlag && headedFlag) throw new Error("Use either --headless or --headed, not both.");
-  const cliLaunchOverride = Boolean(cliBrowser || headlessFlag || headedFlag);
+  const cliLaunchOverride = Boolean(cliBrowser || headlessFlag || headedFlag || cliAntiBot);
   const browserOverride = cliBrowser ?? (cliCdpEndpoint ? "chromium" : process.env.BLOP_BROWSER);
   const cdpOverride = cliCdpEndpoint
     ?? process.env.BLOP_BROWSER_DAEMON_CDP_ENDPOINT
     ?? (!cliLaunchOverride ? process.env.BLOP_BROWSER_CDP_ENDPOINT : undefined);
-  const browser = parseBrowserName(browserOverride ?? (cdpOverride ? "chromium" : configured?.browser) ?? "chromium");
+  const selectedBrowser = parseBrowserName(browserOverride ?? (cdpOverride ? "chromium" : configured?.browser) ?? "chromium");
   removeOption(args, "--browser");
-  const environmentLaunchOverride = Boolean(process.env.BLOP_BROWSER || process.env.BLOP_BROWSER_HEADLESS !== undefined);
+  const environmentLaunchOverride = Boolean(
+    process.env.BLOP_BROWSER
+    || process.env.BLOP_BROWSER_HEADLESS !== undefined
+    || process.env.BLOP_BROWSER_ANTI_BOT === "on",
+  );
   const cdpEndpoint = parseCdpEndpoint(
     cdpOverride
       ?? (!cliLaunchOverride && !environmentLaunchOverride && config?.mode === "chrome-cdp"
@@ -780,6 +811,15 @@ function parseArgs(argv: string[], config: BrowserConfig | null): ParsedArgs {
   const json = removeFlag(args, "--json");
   validateSessionName(session);
   const command = args.shift() ?? "";
+  const browser = command === "config"
+    ? selectedBrowser
+    : applyAntiBot({
+      antiBot,
+      requestedAntiBot,
+      browser: selectedBrowser,
+      cdpEndpoint,
+      cliBrowser,
+    });
   if (command !== "config" && cdpEndpoint && browser !== "chromium") {
     throw new Error("--cdp-endpoint only supports Chromium-based browsers.");
   }
@@ -798,6 +838,8 @@ function parseArgs(argv: string[], config: BrowserConfig | null): ParsedArgs {
     headless,
     json,
     telemetry,
+    antiBot,
+    ...(requestedAntiBot ? { requestedAntiBot } : {}),
     command,
     rest: args,
   };
@@ -818,6 +860,53 @@ function parseTelemetryMode(value: string): "off" {
   throw new Error(
     'First-party harness telemetry must be "off"; this package has no telemetry collection backend.',
   );
+}
+
+function parseAntiBotMode(value: string): AntiBotMode {
+  if (value === "off" || value === "on") return value;
+  throw new Error('--anti-bot must be "on" or "off".');
+}
+
+function defaultModeForAntiBot(antiBot: AntiBotMode): InstallMode {
+  return antiBot === "on" ? "camoufox-headless" : "chromium-headless";
+}
+
+function modeForAntiBot(mode: InstallMode, antiBot: AntiBotMode): InstallMode {
+  if (antiBot === "on") {
+    if (mode === "chrome-cdp") {
+      throw new Error("Anti-bot mode is not available with chrome-cdp.");
+    }
+    if (mode === "chromium-headless") return "camoufox-headless";
+    if (mode === "chromium-headed") return "camoufox-headed";
+    return mode;
+  }
+  if (mode === "camoufox-headless") return "chromium-headless";
+  if (mode === "camoufox-headed") return "chromium-headed";
+  return mode;
+}
+
+function applyAntiBot(input: {
+  antiBot: AntiBotMode;
+  requestedAntiBot?: AntiBotMode;
+  browser: BrowserName;
+  cdpEndpoint?: string;
+  cliBrowser?: string;
+}): BrowserName {
+  if (input.antiBot === "on") {
+    if (input.cdpEndpoint) {
+      throw new Error("Anti-bot mode is not available with --cdp-endpoint.");
+    }
+    if (input.cliBrowser === "chromium") {
+      throw new Error(
+        "Anti-bot mode uses Camoufox. Omit --browser chromium or pass --browser camoufox.",
+      );
+    }
+    return "camoufox";
+  }
+  if (input.requestedAntiBot === "off" && input.cliBrowser !== "camoufox") {
+    return "chromium";
+  }
+  return input.browser;
 }
 
 function settingsForMode(mode: InstallMode): {
@@ -875,9 +964,11 @@ async function readBrowserConfig(path: string): Promise<BrowserConfig | null> {
   if (parsed.version !== 1 || typeof parsed.mode !== "string") return null;
   const mode = parseInstallMode(parsed.mode);
   const telemetry = parseTelemetryMode(parsed.telemetry ?? "off");
+  const antiBot = parseAntiBotMode(parsed.antiBot ?? (mode.startsWith("camoufox") ? "on" : "off"));
+  if (antiBot === "on" && mode === "chrome-cdp") return null;
   const cdpEndpoint = mode === "chrome-cdp" ? parseCdpEndpoint(parsed.cdpEndpoint) : undefined;
   if (mode === "chrome-cdp" && !cdpEndpoint) return null;
-  return { version: 1, mode, telemetry, ...(cdpEndpoint ? { cdpEndpoint } : {}) };
+  return { version: 1, mode, telemetry, antiBot, ...(cdpEndpoint ? { cdpEndpoint } : {}) };
 }
 
 async function writeBrowserConfig(path: string, config: BrowserConfig) {
@@ -904,6 +995,23 @@ function removeFlag(args: string[], name: string) {
   if (index < 0) return false;
   args.splice(index, 1);
   return true;
+}
+
+function takeOptionalEnum<T extends string>(
+  args: string[],
+  name: string,
+  values: readonly T[],
+  bareValue: T,
+): T | undefined {
+  const index = args.indexOf(name);
+  if (index < 0) return undefined;
+  const next = args[index + 1];
+  if (next !== undefined && (values as readonly string[]).includes(next)) {
+    args.splice(index, 2);
+    return next as T;
+  }
+  args.splice(index, 1);
+  return bareValue;
 }
 
 function parseObject(raw: string, source: string): Record<string, unknown> {

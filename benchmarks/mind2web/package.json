@@ -4,8 +4,8 @@
   "type": "module",
   "description": "Agent-neutral live Mind2Web benchmark for Blop Browser.",
   "scripts": {
-    "bench:blop": "blop test adapters/blop.blop.ts --report-dir .mind2web/blop --reporter all",
-    "bench:blop:headed": "blop test adapters/blop.blop.ts --report-dir .mind2web/blop --capture-screenshots --headed",
+    "bench:blop": "blop test adapters/blop.blop.ts --browser camoufox --report-dir .mind2web/blop --reporter all",
+    "bench:blop:headed": "blop test adapters/blop.blop.ts --browser camoufox --report-dir .mind2web/blop --capture-screenshots --headed",
     "bench:list": "blop list adapters/blop.blop.ts"
   },
   "devDependencies": {

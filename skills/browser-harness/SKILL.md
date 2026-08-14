@@ -85,11 +85,13 @@ blop-browser config --mode chromium-headed
 blop-browser config --mode chrome-cdp --cdp-endpoint http://127.0.0.1:9222
 blop-browser config --mode camoufox-headless
 blop-browser config --mode camoufox-headed
+blop-browser config --anti-bot on
 ```
 
 Explain that Camoufox downloads a third-party browser before asking for that
-choice. If asking isn't possible, continue with the safe default of headless
-Chromium. Future managed sessions reuse the saved configuration automatically.
+choice or for `--anti-bot on`. If asking isn't possible, continue with the safe
+default of headless Chromium and leave anti-bot off. Future managed sessions
+reuse the saved configuration automatically.
 A saved CDP endpoint never authorizes access to an existing profile. After the
 user explicitly approves access, start a configured CDP session with
 `blop-browser --attach-existing snapshot`.
@@ -155,13 +157,14 @@ blop-browser config --mode chrome-cdp --cdp-endpoint http://127.0.0.1:9222
 blop-browser config --mode camoufox-headless
 ```
 
-Use Chromium by default. Camoufox is an optional third-party Firefox
-distribution that changes browser-observable fingerprint characteristics. Use
-it for authorized compatibility testing, not to defeat a site's access
-controls. It doesn't grant permission and does not establish anonymity or
+Use Chromium by default. Optional anti-bot mode is off by default. Enabling it
+launches Camoufox, a third-party Firefox distribution that changes
+browser-observable fingerprint characteristics. Ask the user before enabling
+it, and use it only for authorized workflows that need reduced automation
+signals. It doesn't grant permission and does not establish anonymity or
 avoidance of bot protection. If a site presents a CAPTCHA, rate limit, or
-access denial, stop instead of switching browsers, fingerprints, accounts, or
-network routes to bypass it.
+access denial the user is not authorized to pass, stop instead of changing
+accounts or network routes.
 
 For reproducible local evidence about backend-observable signals, follow the
 [local backend signal protocol](https://github.com/blop-oss/blop-browser/blob/master/benchmarks/detection/README.md).
@@ -169,29 +172,31 @@ The protocol uses a controlled loopback fixture and doesn't score or promise
 non-detectability. An installed skill is standalone, so keep this canonical URL
 instead of replacing it with a repository-relative link.
 
-Before installing or switching to Camoufox, tell the user that it downloads a
-third-party browser and uses a different browser fingerprint. Ask the user if
-they want to use it. Don't install or select it without their approval.
+Before installing Camoufox or enabling anti-bot mode, tell the user that it
+downloads a third-party browser and uses a different browser fingerprint. Ask
+the user if they want to enable it. Don't install or select it without their
+approval.
 
 After the user approves, check availability and install it when needed:
 
 ```bash
 blop-browser doctor --json
 blop-browser install camoufox
+blop-browser config --anti-bot on
 ```
 
 Use a separate named session so an active Chromium session keeps its state:
 
 ```bash
-blop-browser --session compatibility-test \
-  --browser camoufox open https://staging.example.com
-blop-browser --session compatibility-test --browser camoufox snapshot
+blop-browser --session authorized-app \
+  --anti-bot open https://staging.example.com
+blop-browser --session authorized-app --anti-bot snapshot
 ```
 
-Pass `--browser camoufox` on every command that can start the named session.
-If the session already uses Chromium, close it deliberately or choose a new
-session name. To return to the default browser, omit `--browser` or pass
-`--browser chromium`.
+Pass `--anti-bot` or `--browser camoufox` on every command that can start the
+named session. If the session already uses Chromium, close it deliberately or
+choose a new session name. To return to the default browser, pass
+`--anti-bot off` or `--browser chromium`.
 
 ## Browser workflow
 

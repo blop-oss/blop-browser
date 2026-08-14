@@ -135,9 +135,14 @@ for (const file of ["README.md", "skills/browser-harness/SKILL.md"]) {
     /--attach-existing[\s\S]*(?:explicit approval|never infer permission)/i,
     "must retain the explicit existing-profile attachment gate",
   );
+  requireMatch(
+    file,
+    /anti-bot mode is off by default/i,
+    "must document optional anti-bot mode as off by default",
+  );
   rejectMatch(
     file,
-    /anti-detect browser|sites that reject automated Chromium|repeated bot checks is one reason|--session google|https:\/\/www\.google\.com|bypass (?:a )?(?:CAPTCHA|bot)|evade (?:a )?(?:CAPTCHA|rate limit)|avoid bot (?:detection|protections?)/i,
+    /anti-detect browser|sites that reject automated Chromium|repeated bot checks is one reason|--session google|https:\/\/www\.google\.com|bypass (?:a )?(?:CAPTCHA|bot)|evade (?:a )?(?:CAPTCHA|rate limit)|lets? you avoid bot (?:detection|protections?)/i,
     "must not market browser modes as bot-control bypasses",
   );
 }

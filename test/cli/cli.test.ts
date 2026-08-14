@@ -179,6 +179,7 @@ describe("blop-browser CLI", () => {
       path: configPath,
       mode: "chromium-headless",
       telemetry: "off",
+      antiBot: "off",
     });
     expect(doctor.result?.privacy).toEqual(expect.objectContaining({
       mode: "local-managed",
@@ -485,11 +486,12 @@ describe("blop-browser CLI", () => {
     }
   });
 
-  test("describes Camoufox as compatibility coverage without bypass marketing", async () => {
+  test("describes Camoufox as optional anti-bot without bypass marketing", async () => {
     const source = await readFile(join(import.meta.dir, "../../src/cli.ts"), "utf8");
 
-    expect(source).toContain("Camoufox, headless (fingerprint compatibility;");
-    expect(source).toContain("Camoufox, visible (fingerprint compatibility;");
+    expect(source).toContain("Camoufox, headless (optional anti-bot;");
+    expect(source).toContain("Camoufox, visible (optional anti-bot;");
+    expect(source).toContain("--anti-bot [on|off]");
     expect(source).not.toMatch(/Camoufox[^\n]*anti-detect/i);
     expect(source).not.toMatch(/Camoufox[^\n]*(?:undetectable|bypass)/i);
   });
@@ -504,6 +506,13 @@ describe("blop-browser CLI", () => {
     })).toBe(true);
     expect(shouldRunFirstConfig({
       argv: ["--headless", "open", "https://example.com"],
+      command: "open",
+      configured: false,
+      json: false,
+      interactive: true,
+    })).toBe(false);
+    expect(shouldRunFirstConfig({
+      argv: ["--anti-bot", "open", "https://example.com"],
       command: "open",
       configured: false,
       json: false,
@@ -872,6 +881,7 @@ describe("blop-browser CLI", () => {
       version: 1,
       mode: "chromium-headed",
       telemetry: "off",
+      antiBot: "off",
     });
 
     const diagnosis = await runCli(["doctor", "--json"], runtimeDir, {
@@ -879,9 +889,80 @@ describe("blop-browser CLI", () => {
       BLOP_BROWSER_HEADLESS: "__UNSET__",
     });
     expect(diagnosis.result).toEqual(expect.objectContaining({
-      browser: expect.objectContaining({ name: "chromium", connection: "launch", headless: false }),
-      configuration: { path: configPath, mode: "chromium-headed", telemetry: "off" },
+      browser: expect.objectContaining({
+        name: "chromium",
+        connection: "launch",
+        headless: false,
+        antiBot: "off",
+      }),
+      configuration: {
+        path: configPath,
+        mode: "chromium-headed",
+        telemetry: "off",
+        antiBot: "off",
+      },
     }));
+  });
+
+  test("enables optional anti-bot mode by selecting Camoufox", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-anti-bot-"));
+    const configPath = join(runtimeDir, "browser-config.json");
+    const executablePath = join(runtimeDir, "camoufox-bin");
+    await writeFile(executablePath, "fake camoufox");
+    await runCli([
+      "config",
+      "--mode",
+      "chromium-headed",
+      "--json",
+    ], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+
+    const enabled = await runCli([
+      "config",
+      "--anti-bot",
+      "on",
+      "--json",
+    ], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+      BLOP_BROWSER_CAMOUFOX_EXECUTABLE_PATH: executablePath,
+    });
+    expect(enabled.result).toEqual(expect.objectContaining({
+      mode: "camoufox-headed",
+      browser: "camoufox",
+      antiBot: "on",
+    }));
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
+      version: 1,
+      mode: "camoufox-headed",
+      telemetry: "off",
+      antiBot: "on",
+    });
+
+    const diagnosis = await runCli(["doctor", "--json"], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+    expect(diagnosis.result?.browser).toEqual(expect.objectContaining({
+      name: "camoufox",
+      connection: "launch",
+      antiBot: "on",
+    }));
+
+    const rejected = await runCliResult([
+      "--anti-bot",
+      "--cdp-endpoint",
+      "http://127.0.0.1:9222",
+      "doctor",
+      "--json",
+    ], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+    expect(rejected.exitCode).toBe(1);
+    expect(rejected.response.error?.message).toContain("not available with --cdp-endpoint");
   });
 
   test("explicit connection options override conflicting saved and environment defaults", async () => {
