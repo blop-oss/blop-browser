@@ -76,6 +76,9 @@ sequence before opening a pull request.
 bun install --frozen-lockfile
 bun run format:check
 bun run check:links
+bun run check:comparison
+bun run check:positioning
+bun run check:claims
 bun run check:acceptable-use
 bun run check:security-policy
 bun run lint
@@ -110,6 +113,10 @@ and state clearly in the pull request whether it ran or skipped.
 Update public documentation whenever behavior, configuration, requirements, or
 output changes. Keep claims tied to code or primary documentation, and don't
 add benchmark numbers without a reproducible run record.
+
+Update the existing row in [`docs/public-claims.md`](docs/public-claims.md) when
+a material public promise changes. Add a new row only for a distinct promise,
+and include a direct implementation, test, or demo anchor plus its limitation.
 
 Check local Markdown links and referenced assets before submitting. When you
 change a heading, search for links to its old anchor.

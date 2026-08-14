@@ -66,7 +66,7 @@ Usage:
   blop-browser doctor [--json]
 
 Global options:
-  --session NAME                 Select an isolated browser session
+  --session NAME                 Select a named managed browser session
   --browser chromium|camoufox   Select the browser for a new session
   --cdp-endpoint URL            Connect to a running Chrome over CDP
   --attach-existing             Explicitly allow access to an existing CDP profile

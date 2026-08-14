@@ -38,6 +38,9 @@ jobs:
       - name: Check positioning evidence
         run: bun run check:positioning
 
+      - name: Check public claims evidence
+        run: bun run check:claims
+
       - name: Check acceptable-use documentation
         run: bun run check:acceptable-use
 

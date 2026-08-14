@@ -13,8 +13,9 @@ private and ignored.
 <!-- prettier-ignore -->
 > [!IMPORTANT]
 > Use this protocol only as local compatibility evidence. It doesn't grant
-> permission to automate a website, guarantee anonymity or non-detectability,
-> or support bypassing a CAPTCHA, rate limit, access denial, or other control.
+> permission to automate a website and does not establish anonymity or
+> non-detectability. It does not support bypassing a CAPTCHA, rate limit, access
+> denial, or other control.
 > Follow the [acceptable-use policy](../../ACCEPTABLE_USE.md).
 
 ## What the protocol measures

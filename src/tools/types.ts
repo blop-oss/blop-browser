@@ -158,15 +158,14 @@ export type BrowserToolContext = {
   /**
    * When true, capture a compact JPEG of the page after every action and attach
    * its path to the action metadata (stepScreenshotPath). Gives a visual trail
-   * of what the agent did. Off by default so CI runs are not slowed.
+   * of what the agent did. Off by default.
    */
   captureStepScreenshots?: boolean;
   /**
    * Returns the latest live screencast frame, if a stream is active. When
-   * present, per-action step screenshots are served from this in-memory frame
-   * (~0.1ms) instead of a blocking page.screenshot() (~30-40ms+). Null before
-   * the first repaint or on non-chromium browsers, where we fall back to a
-   * direct screenshot.
+   * present, per-action step screenshots reuse this in-memory frame instead of
+   * requesting a direct page screenshot. Null before the first repaint or on
+   * non-chromium browsers, where the harness falls back to a direct screenshot.
    */
   liveFrame?: () => { data: Buffer; seq?: number; timestamp?: number } | null;
   /**

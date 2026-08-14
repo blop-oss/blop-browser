@@ -64,7 +64,7 @@ describe("browser-tool comparison evidence", () => {
   test("rejects an invalid parent-relative evidence line range", async () => {
     const { source, options } = await comparisonFixture();
     const broken = source.replace(
-      "../README.md#L9-L43",
+      "../README.md#L37-L48",
       "../README.md#L99999-L100000",
     );
     expect(validateComparisonDocument(broken, options)).toContainEqual(

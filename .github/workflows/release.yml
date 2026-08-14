@@ -7,7 +7,7 @@ name: Release @blopai/browser-harness
 #   1. Go to your package Settings → Trusted Publishing.
 #   2. Select GitHub Actions and fill in:
 #      - Organization or user: blop-oss
-#      - Repository: browser-harness
+#      - Repository: blop-browser
 #      - Workflow filename: release.yml
 #      - Allowed actions: npm publish
 #   3. (Recommended) Set Publishing access to
