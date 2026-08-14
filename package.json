@@ -28,6 +28,7 @@
     "benchmarks/detection/result.schema.json",
     "benchmarks/detection/run.mjs",
     "benchmarks/session-metrics/README.md",
+    "benchmarks/session-metrics/RESULTS.md",
     "benchmarks/session-metrics/core.mjs",
     "benchmarks/session-metrics/protocol.json",
     "benchmarks/session-metrics/result.schema.json",

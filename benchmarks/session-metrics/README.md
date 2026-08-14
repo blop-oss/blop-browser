@@ -5,7 +5,7 @@ harness-observable session metrics for the built Blop Browser CLI. It runs
 three paired repetitions against an internal `127.0.0.1` fixture. It does not
 open a third-party site or estimate provider tokens.
 
-See the dated `RESULTS.md` after a reviewed run is published. The summary
+See the dated [`RESULTS.md`](RESULTS.md) for the reviewed local run. The summary
 retains every repetition's cold and warm duration, metric delta, and failure.
 Full generated reports remain private and ignored.
 

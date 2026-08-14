@@ -181,6 +181,12 @@ function parseArgs(args) {
       "session-metrics",
       "README.md",
     ),
+    sessionMetricsResults: resolve(
+      repositoryRoot,
+      "benchmarks",
+      "session-metrics",
+      "RESULTS.md",
+    ),
   };
   const names = new Map([
     ["--document", "document"],
@@ -193,6 +199,7 @@ function parseArgs(args) {
     ["--detection-guide", "detectionGuide"],
     ["--detection-results", "detectionResults"],
     ["--session-metrics-guide", "sessionMetricsGuide"],
+    ["--session-metrics-results", "sessionMetricsResults"],
   ]);
   for (let index = 0; index < args.length; index += 2) {
     const option = args[index];
@@ -313,6 +320,10 @@ function validatePublicClaimSurfaces(paths) {
     [
       "Session metrics protocol guide",
       withoutFencedCode(readFile(paths.sessionMetricsGuide)),
+    ],
+    [
+      "Published session metrics result",
+      withoutFencedCode(readFile(paths.sessionMetricsResults)),
     ],
   ];
   const publicMarkdownPaths = [

@@ -565,7 +565,9 @@ drives it. No benchmark result is claimed without a reproducible run record.
 Start with the [benchmark plan and result schema](benchmarks/README.md). The
 [local session metrics protocol](benchmarks/session-metrics/README.md) measures
 three paired cold-start and warm-resume workflows against a deterministic
-loopback fixture. The
+loopback fixture. Its
+[dated local result](benchmarks/session-metrics/RESULTS.md) publishes all six
+timed phases and limitations without committing the full report. The
 [Mind2Web live benchmark](benchmarks/mind2web/README.md) contains the normalized
 dataset utility, agent-neutral runner, Blop host adapter, deterministic local
 smoke test, and historical experiment ledger.

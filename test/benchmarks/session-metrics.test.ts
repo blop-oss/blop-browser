@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -234,7 +235,70 @@ describe("local session metrics protocol", () => {
     expect(runner).not.toContain('"--repetitions"');
     expect(runner).toContain("It has no live-URL or repetition override.");
   });
+
+  test("publishes six reviewed phases with reproducible provenance", async () => {
+    const [results, protocol, packageRaw] = await Promise.all([
+      readFile("benchmarks/session-metrics/RESULTS.md", "utf8"),
+      readFile("benchmarks/session-metrics/protocol.json", "utf8"),
+      readFile("package.json", "utf8"),
+    ]);
+    const packageManifest = JSON.parse(packageRaw);
+    const protocolSha256 = createHash("sha256").update(protocol).digest("hex");
+    const evidence = results.match(
+      /<!-- session-metrics-results:start -->([\s\S]*?)<!-- session-metrics-results:end -->/,
+    )?.[1];
+    const phaseRows = (evidence ?? "")
+      .split("\n")
+      .filter((line) => /^\| [1-3]\s+\| `(cold_start|warm_resume)`/.test(line));
+    const payloadRows = results
+      .split("\n")
+      .filter((line) =>
+        /^\| [1-3]\s+\| `(cold_start|warm_resume)`\s+\| \d+\/\d+\/\d+/.test(
+          line,
+        ),
+      );
+
+    expect(results).toContain(`| Protocol SHA-256`);
+    expect(results).toContain(`\`${protocolSha256}\``);
+    expect(results).toMatch(/\| Source commit\s+\| `[a-f0-9]{40}`/);
+    expect(results).toMatch(/\| Working tree dirty\s+\| `false`/);
+    expect(results).toMatch(
+      /\| Runnable `dist` JS SHA-256\s+\| `[a-f0-9]{64}`/,
+    );
+    expect(results).toContain("`complete-dist-js-tree-v1`");
+    expect(phaseRows).toHaveLength(6);
+    expect(payloadRows).toHaveLength(6);
+    expect(phaseRows.map(resultRowIdentity)).toEqual(expectedPhaseIdentities);
+    expect(payloadRows.map(resultRowIdentity)).toEqual(expectedPhaseIdentities);
+    for (const row of phaseRows) {
+      const columns = row.split("|").map((column) => column.trim());
+      expect(columns[3]).toBe("`collected`");
+      expect(columns[4]).toMatch(/^\d+(?:\.\d+)?$/);
+      expect(columns[9]).toMatch(/^\d+(?:\.\d+)?$/);
+    }
+    expect(results).toContain("Failures: **none**.");
+    expect(packageManifest.files).toContain(
+      "benchmarks/session-metrics/RESULTS.md",
+    );
+    expect(
+      packageManifest.files.some((path: string) => path.includes(".results")),
+    ).toBe(false);
+  });
 });
+
+const expectedPhaseIdentities = [
+  "1:cold_start",
+  "1:warm_resume",
+  "2:cold_start",
+  "2:warm_resume",
+  "3:cold_start",
+  "3:warm_resume",
+];
+
+function resultRowIdentity(row: string) {
+  const columns = row.split("|").map((column) => column.trim());
+  return `${columns[1]}:${columns[2].replaceAll("`", "")}`;
+}
 
 async function temporaryBuild() {
   const directory = await mkdtemp(join(tmpdir(), "session-metrics-build-"));

@@ -290,6 +290,22 @@ describe("public claims evidence", () => {
     );
   });
 
+  test("scans the published session metrics result as a public claim surface", async () => {
+    const results = await mutatedSurface(
+      "benchmarks/session-metrics/RESULTS.md",
+      (source) => source.replace(
+        "This reviewed result publishes all six timed phases",
+        "This fastest browser always works and publishes six timed phases",
+      ),
+    );
+    const result = await runChecker("--session-metrics-results", results);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Published session metrics result contains unsupported public claim",
+    );
+  });
+
   test("rejects a direct evidence link whose line range drifted", async () => {
     const document = await mutatedDocument((source) =>
       source.replace(
