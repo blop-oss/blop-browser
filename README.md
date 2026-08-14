@@ -13,7 +13,8 @@ Codex, Claude Code, OpenCode, and custom agent hosts.
 Blop Browser is browser infrastructure, not a complete browser agent. It has no
 model, planner, or autonomous agent loop; your host owns orchestration and
 approval decisions. Review the [known limitations](docs/known-limitations.md)
-before choosing it for a workflow.
+and [privacy and data-flow contract](PRIVACY.md) before choosing it for a
+workflow.
 
 Use Blop Browser only on websites, accounts, and data you own or are authorized
 to access. Read the [acceptable-use policy](ACCEPTABLE_USE.md) before setup.
@@ -182,17 +183,32 @@ blop-browser --session checkout status --json
 
 The `sessionScope` result reports the profile mode, storage scope, profile,
 downloads and artifact directories, local owner, expiry, and whether the
-profile is managed by Blop Browser. Use a disposable profile when state must
-expire with the daemon:
+profile is managed by Blop Browser. The `privacy` result separately reports
+local or attached mode, first-party harness telemetry (`off`), CLI recording
+states, the daemon log, and distinct local, managed-browser, and
+external-browser retention. A newly started daemon returns the same object at
+the top of its first JSON response; human output prints a concise version to
+stderr. See [privacy and data flows](PRIVACY.md) before handling sensitive
+pages.
+
+Use a disposable profile when state must expire with the daemon:
 
 ```bash
 blop-browser --session review --profile disposable open https://example.com
 blop-browser --session review close
 ```
 
-Disposable profile, download, and artifact state is removed on explicit close
-or idle shutdown. To immediately remove a persistent session's profile,
-downloads, artifacts, and daemon metadata, run:
+Disposable profile, download, artifact, and daemon-log state is removed on
+explicit close or idle shutdown. List retained session metadata without
+reading profile contents, then delete one validated session through the
+discoverable lifecycle commands:
+
+```bash
+blop-browser data list --json
+blop-browser data delete checkout
+```
+
+`data delete checkout` is the strict alias of:
 
 ```bash
 blop-browser --session checkout destroy
@@ -200,7 +216,9 @@ blop-browser --session checkout destroy
 
 `destroy` closes an active managed session before deleting its state. For an
 attached Chrome session, it disconnects and removes only Blop Browser's managed
-artifacts; it does not delete the external Chrome profile.
+artifacts; it does not delete the external Chrome profile. Neither command
+removes global configuration, browser caches, Docker resources, website data,
+or host/provider records, and filesystem removal is not secure erasure.
 
 Use `--json` for a machine-readable response envelope:
 
@@ -302,6 +320,12 @@ passing the endpoint, but the first command must still include
 `--attach-existing`. Attach only to a dedicated profile and accounts you are
 authorized to control; CDP access doesn't grant permission to automate a
 website.
+
+Status and doctor output reduce a CDP URL to its scheme, host, and effective
+port; even that host can be sensitive. The owner-only global configuration
+retains the full endpoint needed to reconnect. Browser control, input, uploads,
+page state, and screenshots cross a remote CDP transport, while the attached
+profile and remote-side logs remain outside harness deletion.
 
 ## Use Camoufox
 
@@ -508,7 +532,11 @@ The public API also exports `NativeToolBridge`, `startScreencast`, structured
 target helpers, `BrowserSafetyError`, the safety policy types, and warm Docker
 sessions. `startPlaywrightContainer()` and `startCamoufoxContainer()` keep their
 server containers running while each caller receives a separate browser
-instance. This does not provide operating-system or network isolation.
+instance. They do not probe a public endpoint by default. Pass
+`probeInternetEgress: true` only when the fixed `https://1.1.1.1:443`
+diagnostic is acceptable; the returned `internetEgressProbe` discloses the
+destination and `hasInternetEgress` is `null` when it was not probed. This does
+not provide operating-system or network isolation.
 
 ## Compare browser interfaces
 
@@ -543,6 +571,7 @@ Explicit CLI flags take precedence where both forms exist.
 | `BLOP_BROWSER_HEADLESS`                 | `1`                              | Set to `0` for a visible browser                      |
 | `BLOP_BROWSER_CDP_ENDPOINT`             | Unset                            | Existing Chrome CDP URL; doesn't authorize attachment |
 | `BLOP_BROWSER_PROFILE`                  | `persistent`                     | `persistent` or `disposable` managed profile mode     |
+| `BLOP_BROWSER_TELEMETRY`                | `off`                            | First-party harness telemetry; only `off` is valid    |
 | `BLOP_BROWSER_CONFIG_PATH`              | Platform config directory        | Saved installer choice                                |
 | `BLOP_BROWSER_EXECUTABLE_PATH`          | Auto-detect                      | Chrome or Chromium path                               |
 | `BLOP_BROWSER_CAMOUFOX_EXECUTABLE_PATH` | Auto-detect                      | Camoufox path                                         |

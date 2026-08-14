@@ -3,6 +3,11 @@ import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import { chromium, type Browser } from "playwright";
+import {
+  createContainerIdentityCache,
+  resolveInternetEgressProbe,
+  type InternetEgressProbeDisclosure,
+} from "./egress.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,6 +23,8 @@ const READY_POLL_INTERVAL_MS = 500;
 export type PlaywrightContainerOptions = {
   image?: string;
   containerName?: string;
+  /** Explicitly contact the fixed public endpoint disclosed by `internetEgressProbe`. */
+  probeInternetEgress?: boolean;
 };
 
 export type PlaywrightContainerSession = {
@@ -26,15 +33,11 @@ export type PlaywrightContainerSession = {
   containerName: string;
   wsEndpoint: string;
   /**
-   * Whether the shared container has confirmed outbound internet egress to a
-   * known public endpoint. Cached for the container's lifetime: probed once
-   * after the server is ready, never re-probed unless the container is
-   * recreated. When false, third-party request failures inside runs are
-   * environment limitations (the sandbox cannot reach the internet), not app
-   * bugs — the runner forwards this to the agent prompt so it treats
-   * third-party failures accordingly.
+   * The explicit public-endpoint diagnostic result. `null` means no request
+   * was made. An opted-in boolean result is cached for the container lifetime.
    */
-  hasInternetEgress: boolean;
+  hasInternetEgress: boolean | null;
+  internetEgressProbe: InternetEgressProbeDisclosure;
   /**
    * Whether the browser was launched with web-security disabled so the agent
    * can exercise cross-origin flows (OAuth redirects, third-party iframes,
@@ -161,18 +164,16 @@ async function waitForServer(name: string): Promise<void> {
   throw new Error(`Timed out after ${STARTUP_TIMEOUT_MS}ms waiting for the Playwright server in container "${name}" to accept connections.`);
 }
 
-// Cached egress result for the shared container. Probed once after the server
-// is ready; reused for every session that attaches to the same container until
-// it is recreated. A false here is the signal that third-party request
-// failures inside runs are environment limitations, not app bugs.
-let cachedEgress: boolean | null = null;
+// An explicitly requested result is cached for the shared container. Starting
+// a container session does not contact the public probe endpoint by default.
+const egressByContainer = createContainerIdentityCache<boolean>();
 
 /**
- * Probe whether the shared container can reach the public internet. Uses a
+ * When explicitly requested, probe whether the shared container can reach the public internet. Uses a
  * low-overhead HEAD request to a well-known, highly-available host (Cloudflare
  * DNS at 1.1.1.1) from inside the container via `docker exec`. Probed once per
- * container lifetime; the result is cached in `cachedEgress` so concurrent
- * sessions don't re-probe.
+ * container identity; concurrent sessions for that exact container share one
+ * probe, while a recreated container gets a new result.
  *
  * Failure modes this distinguishes:
  *  - Egress allowed (default Docker bridge network): true → third-party
@@ -181,37 +182,40 @@ let cachedEgress: boolean | null = null;
  *    false → third-party failures are environment limits; the agent prompt is
  *    told to treat them as caveats, not app bugs.
  */
-async function probeInternetEgress(containerName: string): Promise<boolean> {
-  if (cachedEgress !== null) return cachedEgress;
+async function probeInternetEgress(
+  containerName: string,
+  containerId: string,
+): Promise<boolean> {
   // A single short HEAD request against Cloudflare's anycast DNS endpoint.
   // 1.1.1.1 is operated as a public anycast service with very high uptime, so
   // a failure here is a strong signal of blocked egress rather than a flaky
   // target. The 4s timeout keeps a blocked VM from stalling run startup.
-  try {
-    await execFileAsync(
-      "docker",
-      [
-        "exec",
-        containerName,
-        "curl",
-        "--silent",
-        "--head",
-        "--max-time", "4",
-        "--output", "/dev/null",
-        "https://1.1.1.1/",
-      ],
-      { timeout: 8_000 },
-    );
-    cachedEgress = true;
-  } catch {
-    cachedEgress = false;
-  }
-  return cachedEgress;
+  return await egressByContainer.getOrCreate(containerName, containerId, async () => {
+    try {
+      await execFileAsync(
+        "docker",
+        [
+          "exec",
+          containerName,
+          "curl",
+          "--silent",
+          "--head",
+          "--max-time", "4",
+          "--output", "/dev/null",
+          "https://1.1.1.1/",
+        ],
+        { timeout: 8_000 },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Reset the cached egress result (used by tests that recreate the container). */
 export function _resetEgressCacheForTests(): void {
-  cachedEgress = null;
+  egressByContainer.clear();
 }
 
 /**
@@ -317,13 +321,17 @@ export async function startPlaywrightContainer(options: PlaywrightContainerOptio
     };
   }
   const browser = await chromium.connect(wsEndpoint, connectOptions as any);
-  const hasInternetEgress = await probeInternetEgress(containerName);
+  const internetEgressProbe = resolveInternetEgressProbe(options.probeInternetEgress);
+  const hasInternetEgress = internetEgressProbe.enabled
+    ? await probeInternetEgress(containerName, containerId)
+    : null;
   return {
     browser,
     containerId,
     containerName,
     wsEndpoint,
     hasInternetEgress,
+    internetEgressProbe,
     corsBypassed,
     stop: async () => {
       try { await browser.close(); } catch {}
@@ -337,4 +345,5 @@ export async function stopPlaywrightContainer(containerName?: string): Promise<v
   try {
     await docker(["rm", "-f", name]);
   } catch {}
+  egressByContainer.delete(name);
 }

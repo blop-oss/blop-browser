@@ -5,6 +5,9 @@ settings that require a maintainer. Complete it immediately before the public
 announcement. The repository rename was completed on 2026-08-13; recheck its
 redirects and package links before launch.
 
+Review [privacy and data flows](../PRIVACY.md) before publishing setup copy,
+screenshots, recordings, benchmark evidence, or remote-browser guidance.
+
 ## Repository identity
 
 The source and repository present the product as Blop Browser while preserving

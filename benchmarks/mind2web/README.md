@@ -7,6 +7,9 @@ browser setup. An agent adapter owns model calls and tool dispatch. The broader
 authenticated-session, and parallel-isolation measurements that aren't yet
 fully instrumented here.
 
+Read [privacy and data flows](../../PRIVACY.md) before configuring dataset,
+website, browser, model-provider, credential, or report handling.
+
 Run live tasks only on targets you are authorized to automate. Dataset inclusion
 doesn't grant current website permission. Review the
 [acceptable-use policy](../../ACCEPTABLE_USE.md) before selecting tasks, and

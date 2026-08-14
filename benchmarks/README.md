@@ -5,6 +5,9 @@ Blop Browser and comparable browser interfaces. It separates deterministic
 local checks from live-site and model-dependent measurements, and it provides a
 shared output schema without claiming results that haven't been run.
 
+The [privacy and data-flow contract](../PRIVACY.md) distinguishes local
+artifacts from live-site, provider, dataset, and remote-browser transmission.
+
 Run benchmarks only against local fixtures or websites and accounts you are
 authorized to automate. The [acceptable-use policy](../ACCEPTABLE_USE.md)
 applies to dataset selection, browser modes, task execution, and retained

@@ -47,6 +47,9 @@ jobs:
       - name: Check security-policy documentation
         run: bun run check:security-policy
 
+      - name: Check privacy data flows
+        run: bun run check:privacy
+
       - name: Lint
         run: bun run lint
 
@@ -61,6 +64,9 @@ jobs:
 
       - name: Run local positioning proof
         run: bun run demo:positioning
+
+      - name: Run local privacy lifecycle proof
+        run: bun run demo:privacy
 
       - name: Tests (browser)
         run: |

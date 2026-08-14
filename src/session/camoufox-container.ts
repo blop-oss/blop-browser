@@ -5,6 +5,11 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { firefox, type Browser } from "playwright";
+import {
+  createContainerIdentityCache,
+  resolveInternetEgressProbe,
+  type InternetEgressProbeDisclosure,
+} from "./egress.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -17,6 +22,8 @@ const WS_PATH_LABEL = "com.blop.camoufox.ws-path";
 export type CamoufoxContainerOptions = {
   image?: string;
   containerName?: string;
+  /** Explicitly contact the fixed public endpoint disclosed by `internetEgressProbe`. */
+  probeInternetEgress?: boolean;
 };
 
 export type CamoufoxContainerSession = {
@@ -24,7 +31,9 @@ export type CamoufoxContainerSession = {
   containerId: string;
   containerName: string;
   wsEndpoint: string;
-  hasInternetEgress: boolean;
+  /** `null` unless the fixed public-endpoint diagnostic was explicitly requested. */
+  hasInternetEgress: boolean | null;
+  internetEgressProbe: InternetEgressProbeDisclosure;
   corsBypassed: false;
   /** Disconnects this browser session while keeping the warm container alive. */
   stop: () => Promise<void>;
@@ -157,32 +166,33 @@ async function waitForServer(name: string): Promise<void> {
   throw new Error(`Timed out after ${STARTUP_TIMEOUT_MS}ms waiting for the Camoufox server in container "${name}".`);
 }
 
-const egressByContainer = new Map<string, boolean>();
+const egressByContainer = createContainerIdentityCache<boolean>();
 
-async function probeInternetEgress(containerName: string): Promise<boolean> {
-  const cached = egressByContainer.get(containerName);
-  if (cached !== undefined) return cached;
-  try {
-    await execFileAsync(
-      "docker",
-      [
-        "exec",
-        containerName,
-        "curl",
-        "--silent",
-        "--head",
-        "--max-time", "4",
-        "--output", "/dev/null",
-        "https://1.1.1.1/",
-      ],
-      { timeout: 8_000 },
-    );
-    egressByContainer.set(containerName, true);
-    return true;
-  } catch {
-    egressByContainer.set(containerName, false);
-    return false;
-  }
+async function probeInternetEgress(
+  containerName: string,
+  containerId: string,
+): Promise<boolean> {
+  return await egressByContainer.getOrCreate(containerName, containerId, async () => {
+    try {
+      await execFileAsync(
+        "docker",
+        [
+          "exec",
+          containerName,
+          "curl",
+          "--silent",
+          "--head",
+          "--max-time", "4",
+          "--output", "/dev/null",
+          "https://1.1.1.1/",
+        ],
+        { timeout: 8_000 },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 async function launchOptions(containerName: string): Promise<Record<string, unknown>> {
@@ -270,12 +280,16 @@ export async function startCamoufoxContainer(
       "x-playwright-launch-options": JSON.stringify(generatedLaunchOptions),
     },
   });
+  const internetEgressProbe = resolveInternetEgressProbe(options.probeInternetEgress);
   return {
     browser,
     containerId,
     containerName,
     wsEndpoint,
-    hasInternetEgress: await probeInternetEgress(containerName),
+    hasInternetEgress: internetEgressProbe.enabled
+      ? await probeInternetEgress(containerName, containerId)
+      : null,
+    internetEgressProbe,
     corsBypassed: false,
     stop: async () => {
       try { await browser.close(); } catch {}

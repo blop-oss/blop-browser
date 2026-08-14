@@ -33,6 +33,7 @@ const requiredClaims = [
   "INTERFACES",
   "ACTION_TRACE",
   "SESSION_METRICS",
+  "PRIVACY_DATA_FLOWS",
   "SAFETY_CONTROLS",
   "CONTAINER_SERVICES",
   "SCREENCAST",
@@ -327,6 +328,7 @@ function validatePublicClaimSurfaces(paths) {
     ],
   ];
   const publicMarkdownPaths = [
+    "PRIVACY.md",
     "ACCEPTABLE_USE.md",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
@@ -372,6 +374,7 @@ function validatePublicClaimSurfaces(paths) {
     "src/session-metrics.ts",
     "src/trace-recorder.ts",
     "src/session/scope.ts",
+    "src/session/egress.ts",
     "src/session/playwright-container.ts",
     "src/session/camoufox-container.ts",
     "src/tools/types.ts",

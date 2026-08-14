@@ -17,6 +17,8 @@ Blop Browser is browser infrastructure, not a complete browser agent. It has no
 model, planner, or autonomous agent loop; the host owns orchestration and
 approval decisions. Review the
 [known limitations](https://github.com/blop-oss/blop-browser/blob/master/docs/known-limitations.md)
+and
+[privacy and data flows](https://github.com/blop-oss/blop-browser/blob/master/PRIVACY.md)
 before choosing it for a workflow.
 
 Use it only for websites, accounts, and data the user owns or is authorized to
@@ -226,6 +228,12 @@ authenticated data:
 blop-browser --session research status --json
 ```
 
+The `privacy` result reports managed or attached mode, first-party harness
+telemetry, CLI recording, paths, and split local/external retention. Read the
+canonical
+[privacy and data-flow contract](https://github.com/blop-oss/blop-browser/blob/master/PRIVACY.md)
+before forwarding page observations or pixels to a host or model provider.
+
 Use a disposable profile when all browser storage, downloads, and artifacts
 must disappear on close or idle shutdown:
 
@@ -241,6 +249,18 @@ daemon metadata:
 ```bash
 blop-browser --session research destroy
 ```
+
+Discover retained session metadata and the matching deletion command without
+reading profile contents:
+
+```bash
+blop-browser data list --json
+blop-browser data delete research
+```
+
+Session deletion preserves global configuration, browser caches, Docker
+resources, external profiles, website data, and host/provider records. It is
+not verified secure erasure.
 
 Export the ordered, redacted action trace during a session or after a
 persistent session closes:

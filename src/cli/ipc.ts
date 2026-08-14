@@ -8,6 +8,7 @@ import {
 } from "../session/scope.js";
 import type { ToolContentBoundary } from "../types.js";
 import type { BrowserActionCategory } from "../tools/types.js";
+import type { CliSessionPrivacySummary } from "./privacy.js";
 
 const MAX_MESSAGE_BYTES = 1_048_576;
 
@@ -31,6 +32,7 @@ export type RpcRequest = {
 export type RpcResponse = {
   id: string;
   ok: boolean;
+  privacy?: CliSessionPrivacySummary;
   result?: unknown;
   error?: {
     code: string;

@@ -6,6 +6,8 @@ commands, and the package's live Chromium screencast API without using a live
 website or authenticated account.
 
 Follow the [acceptable-use policy](../ACCEPTABLE_USE.md) for every recording.
+Review [privacy and data flows](../PRIVACY.md) before exposing page pixels,
+semantic text, URLs, or retained artifacts in a recording.
 Don't substitute a production account, third-party service, CAPTCHA, access
 denial, purchase, or other consequential workflow in launch material.
 

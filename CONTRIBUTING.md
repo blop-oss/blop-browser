@@ -18,6 +18,8 @@ Read these files before changing behavior:
   examples.
 - [Security policy](SECURITY.md) for private vulnerability reporting and
   maintainer triage responsibilities.
+- [Privacy and data flows](PRIVACY.md) for local, remote, recording, and
+  retention boundaries.
 - [`README.md`](README.md) for the public CLI and TypeScript contracts.
 - [`test/browser/README.md`](test/browser/README.md) for browser-test scope.
 - [`benchmarks/README.md`](benchmarks/README.md) for benchmark evidence rules.
@@ -82,6 +84,7 @@ bun run check:positioning
 bun run check:claims
 bun run check:acceptable-use
 bun run check:security-policy
+bun run check:privacy
 bun run lint
 bun run typecheck
 bun run test

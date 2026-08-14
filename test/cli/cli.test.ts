@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, open, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,11 +13,44 @@ import { MAX_PERSISTED_METRICS_BYTES } from "../../src/cli/metrics-store.js";
 import { createSessionMetricsRecorder } from "../../src/session-metrics.js";
 import { createTraceRecorder } from "../../src/trace-recorder.js";
 import { startFixtureServer, type FixtureServer } from "../fixtures/server.js";
+import {
+  MAX_CLASSIFIED_RUNTIME_ENTRIES,
+  MAX_INSPECTED_RUNTIME_ENTRIES,
+  MAX_LISTED_RUNTIME_ENTRIES,
+  MAX_REPORTED_FILE_BYTES,
+} from "../../src/cli/data-store.js";
 
 type CliResult = {
   ok: boolean;
+  privacy?: {
+    version: 1;
+    mode: "local-managed" | "attached-cdp";
+    telemetry: { firstPartyHarness: "off"; destination: null };
+    recording: {
+      actionTrace: "on";
+      sessionMetrics: "on";
+      screenshots: "on-demand";
+      stepScreenshots: "off";
+      screencast: "off";
+    };
+    retention: {
+      localArtifacts: "until-destroy" | "until-close";
+      managedBrowserStorage: "until-destroy" | "until-close" | "not-managed";
+      externalBrowserStorage: "not-applicable" | "preserved";
+      daemonLog: "until-destroy" | "until-close";
+    };
+    locations: {
+      runtimeDirectory: string;
+      profileDirectory: string | null;
+      downloadsDirectory: string | null;
+      artifactDirectory: string;
+      daemonLog: string;
+    };
+    remoteControlEndpoint: string | null;
+  };
   result?: any;
   error?: {
+    code?: string;
     message: string;
     contentBoundary?: { source: string; trust: string };
     policy?: { code: string; toolName: string; category: string };
@@ -46,6 +79,375 @@ afterEach(async () => {
 });
 
 describe("blop-browser CLI", () => {
+  test("reports the privacy contract when a managed session starts and in status", async () => {
+    server = await startFixtureServer([{
+      path: "/",
+      body: "<main><h1>Privacy fixture</h1></main>",
+    }]);
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-privacy-"));
+    session = `privacy-${process.pid}`;
+
+    const started = await runCliResult([
+      "--session",
+      session,
+      "open",
+      server.url,
+      "--json",
+    ], runtimeDir);
+    const expected = {
+      version: 1,
+      mode: "local-managed",
+      telemetry: { firstPartyHarness: "off", destination: null },
+      recording: {
+        actionTrace: "on",
+        sessionMetrics: "on",
+        screenshots: "on-demand",
+        stepScreenshots: "off",
+        screencast: "off",
+      },
+      retention: {
+        localArtifacts: "until-destroy",
+        managedBrowserStorage: "until-destroy",
+        externalBrowserStorage: "not-applicable",
+        daemonLog: "until-destroy",
+      },
+      locations: {
+        runtimeDirectory: runtimeDir,
+        profileDirectory: join(runtimeDir, `${session}-profile`),
+        downloadsDirectory: join(runtimeDir, `${session}-downloads`),
+        artifactDirectory: join(runtimeDir, `${session}-artifacts`),
+        daemonLog: join(runtimeDir, `${session}.log`),
+      },
+      remoteControlEndpoint: null,
+    } as const;
+
+    expect(started.exitCode).toBe(0);
+    expect(started.response.privacy).toEqual(expected);
+    expect(started.stderr).toBe("");
+
+    const status = await runCli([
+      "--session",
+      session,
+      "status",
+      "--json",
+    ], runtimeDir);
+    expect(status.result?.privacy).toEqual(expected);
+  }, 30_000);
+
+  test("prints a concise privacy summary to stderr without changing human tool output", async () => {
+    server = await startFixtureServer([{
+      path: "/",
+      body: "<main><h1>Human privacy fixture</h1></main>",
+    }]);
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-privacy-human-"));
+    session = `privacy-human-${process.pid}`;
+
+    const started = await runCliText([
+      "--session",
+      session,
+      "open",
+      server.url,
+    ], runtimeDir);
+
+    expect(started.exitCode).toBe(0);
+    expect(started.stdout).toContain("Navigated to");
+    expect(started.stdout).not.toContain("Privacy:");
+    expect(started.stderr).toBe(
+      `Privacy: mode=local-managed telemetry=off recording=trace+metrics; screenshots=on-demand profile=${join(runtimeDir, `${session}-profile`)} local-retention=until-destroy browser-storage=until-destroy\n`,
+    );
+  }, 30_000);
+
+  test("defaults missing legacy telemetry configuration to off and reports it in doctor", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-telemetry-legacy-"));
+    const configPath = join(runtimeDir, "browser-config.json");
+    await writeFile(configPath, JSON.stringify({
+      version: 1,
+      mode: "chromium-headless",
+    }));
+
+    const doctor = await runCli([
+      "--session",
+      "legacy",
+      "doctor",
+      "--json",
+    ], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+
+    expect(doctor.result?.configuration).toEqual({
+      path: configPath,
+      mode: "chromium-headless",
+      telemetry: "off",
+    });
+    expect(doctor.result?.privacy).toEqual(expect.objectContaining({
+      mode: "local-managed",
+      telemetry: { firstPartyHarness: "off", destination: null },
+      retention: expect.objectContaining({
+        localArtifacts: "until-destroy",
+        managedBrowserStorage: "until-destroy",
+      }),
+    }));
+
+    const offline = await runCli([
+      "--session",
+      "legacy",
+      "--profile",
+      "disposable",
+      "status",
+      "--json",
+    ], runtimeDir, { BLOP_BROWSER_CONFIG_PATH: configPath });
+    expect(offline.result?.privacy).toEqual(expect.objectContaining({
+      mode: "local-managed",
+      retention: {
+        localArtifacts: "until-close",
+        managedBrowserStorage: "until-close",
+        externalBrowserStorage: "not-applicable",
+        daemonLog: "until-close",
+      },
+    }));
+  });
+
+  test("fails closed when configuration tries to enable first-party harness telemetry", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-telemetry-on-"));
+    const configPath = join(runtimeDir, "browser-config.json");
+    await writeFile(configPath, JSON.stringify({
+      version: 1,
+      mode: "chromium-headless",
+      telemetry: "on",
+    }));
+
+    const doctor = await runCliResult([
+      "doctor",
+      "--json",
+    ], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+
+    expect(doctor.exitCode).toBe(1);
+    expect(doctor.response.error?.message).toContain(
+      'First-party harness telemetry must be "off"',
+    );
+    expect(doctor.stdout).not.toContain("telemetry collection backend\n");
+
+    await rm(configPath);
+    const flag = await runCliResult([
+      "--telemetry",
+      "on",
+      "doctor",
+      "--json",
+    ], runtimeDir);
+    expect(flag.exitCode).toBe(1);
+    expect(flag.response.error?.message).toContain(
+      'First-party harness telemetry must be "off"',
+    );
+  });
+
+  test("never prints CDP credentials, paths, or query secrets from saved configuration", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-cdp-secret-"));
+    const configPath = join(runtimeDir, "browser-config.json");
+    const secretEndpoint = "wss://user:password@private.example:9443/devtools/browser/id?token=query-secret#fragment-secret";
+
+    const configured = await runCliResult([
+      "config",
+      "--mode",
+      "chrome-cdp",
+      "--cdp-endpoint",
+      secretEndpoint,
+      "--json",
+    ], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+    const doctor = await runCliResult([
+      "doctor",
+      "--json",
+    ], runtimeDir, {
+      BLOP_BROWSER_CONFIG_PATH: configPath,
+      BLOP_BROWSER_HEADLESS: "__UNSET__",
+    });
+
+    expect(configured.response.result?.cdpEndpoint).toBe("wss://private.example:9443");
+    expect(doctor.response.result?.browser.cdpEndpoint).toBe("wss://private.example:9443");
+    expect(`${configured.stdout}${configured.stderr}${doctor.stdout}${doctor.stderr}`)
+      .not.toMatch(/user|password|query-secret|fragment-secret|devtools\/browser/);
+    expect((await Bun.file(configPath).stat()).mode & 0o777).toBe(0o600);
+  });
+
+  test("redacts a failed CDP connection in JSON, stderr, and the daemon log", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-cdp-failure-"));
+    session = `cdp-failure-${process.pid}`;
+    const endpoint = "ws://user:password@127.0.0.1:1/devtools/browser/private-id?token=query-secret#fragment-secret";
+
+    const result = await runCliResult([
+      "--session",
+      session,
+      "--cdp-endpoint",
+      endpoint,
+      "--attach-existing",
+      "snapshot",
+      "--json",
+    ], runtimeDir);
+    const daemonLog = await readFile(join(runtimeDir, `${session}.log`), "utf8");
+    const observable = `${result.stdout}${result.stderr}${daemonLog}`;
+
+    expect(result.exitCode).toBe(1);
+    expect(result.response.error?.message).toContain(
+      "Could not connect to Chrome over CDP at ws://127.0.0.1:1",
+    );
+    expect(observable).not.toMatch(
+      /user|password|private-id|query-secret|fragment-secret|devtools\/browser/,
+    );
+  }, 30_000);
+
+  test("lists retained session metadata without following links and deletes only a validated session", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-data-"));
+    const retainedSession = "retained_fixture";
+    const outside = await mkdtemp(join(tmpdir(), "blop-browser-data-outside-"));
+    const outsideSentinel = join(outside, "sentinel.txt");
+    await Promise.all([
+      mkdir(join(runtimeDir, `${retainedSession}-profile`)),
+      mkdir(join(runtimeDir, `${retainedSession}-artifacts`)),
+      writeFile(join(runtimeDir, `${retainedSession}.log`), "log"),
+      writeFile(outsideSentinel, "preserve"),
+      writeFile(join(runtimeDir, "not a session.log"), "ignore"),
+    ]);
+    await symlink(outside, join(runtimeDir, `${retainedSession}-downloads`));
+
+    const listed = await runCli(["data", "list", "--json"], runtimeDir);
+    expect(listed.result).toMatchObject({
+      version: 1,
+      runtimeDirectory: runtimeDir,
+      truncated: false,
+      measurement: "metadata-only; at most 1,024 entries are classified and one additional entry may be read to establish truncation; directories are not traversed",
+      sessions: [{
+        session: retainedSession,
+        deleteCommand: `blop-browser data delete ${retainedSession}`,
+        entries: expect.arrayContaining([
+          expect.objectContaining({ kind: "profile", nodeType: "directory", fileBytes: null }),
+          expect.objectContaining({ kind: "downloads", nodeType: "symlink", fileBytes: null }),
+          expect.objectContaining({ kind: "artifacts", nodeType: "directory", fileBytes: null }),
+          expect.objectContaining({ kind: "daemon-log", nodeType: "file", fileBytes: 3 }),
+        ]),
+      }],
+      preserved: expect.arrayContaining([
+        expect.objectContaining({ category: "global-config" }),
+        expect.objectContaining({ category: "browser-cache", location: null }),
+        expect.objectContaining({ category: "docker-resources", location: null }),
+        expect.objectContaining({ category: "external-browser-profile", location: null }),
+      ]),
+    });
+    expect(JSON.stringify(listed.result)).not.toContain("not a session.log");
+
+    const deleted = await runCli([
+      "data",
+      "delete",
+      retainedSession,
+      "--json",
+    ], runtimeDir);
+    expect(deleted.result).toEqual(expect.objectContaining({
+      session: retainedSession,
+      destroyed: true,
+      preserved: expect.arrayContaining([
+        expect.objectContaining({ category: "global-config" }),
+        expect.objectContaining({ category: "browser-cache" }),
+        expect.objectContaining({ category: "docker-resources" }),
+        expect.objectContaining({ category: "external-browser-profile" }),
+      ]),
+      deletionBoundary: "filesystem removal completed; secure erasure and external copies are not verified",
+    }));
+    expect(await pathExists(outsideSentinel)).toBe(true);
+
+    const invalid = await runCliResult([
+      "data",
+      "delete",
+      "../outside",
+      "--json",
+    ], runtimeDir);
+    expect(invalid.exitCode).toBe(1);
+    expect(await pathExists(outsideSentinel)).toBe(true);
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  test("bounds retained-data entries and file-size metadata", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-data-bounds-"));
+    const configPath = join(runtimeDir, "browser-config.json");
+    await writeFile(configPath, JSON.stringify({
+      version: 1,
+      mode: "chromium-headless",
+      telemetry: "off",
+    }));
+    const largeLog = join(runtimeDir, "large.log");
+    const handle = await open(largeLog, "w");
+    await handle.truncate(MAX_REPORTED_FILE_BYTES + 1);
+    await handle.close();
+
+    const measured = await runCli(["data", "list", "--json"], runtimeDir);
+    expect(measured.result?.sessions).toEqual([
+      expect.objectContaining({
+        session: "large",
+        entries: [expect.objectContaining({
+          kind: "daemon-log",
+          fileBytes: MAX_REPORTED_FILE_BYTES,
+          fileBytesClipped: true,
+        })],
+      }),
+    ]);
+
+    await Promise.all(Array.from({ length: MAX_LISTED_RUNTIME_ENTRIES + 8 }, (_, index) =>
+      writeFile(join(runtimeDir!, `bounded-${String(index).padStart(3, "0")}.log`), "x")
+    ));
+    const bounded = await runCli(["data", "list", "--json"], runtimeDir);
+    expect(bounded.result?.listedEntries).toBe(MAX_LISTED_RUNTIME_ENTRIES);
+    expect(bounded.result?.truncated).toBe(true);
+    expect(bounded.result?.sessions).toHaveLength(MAX_LISTED_RUNTIME_ENTRIES);
+    expect(bounded.result?.sessions.some((item: { session: string }) => item.session === "browser-config"))
+      .toBe(false);
+
+    const existingEntryCount = MAX_LISTED_RUNTIME_ENTRIES + 10;
+    await Promise.all(Array.from(
+      { length: MAX_INSPECTED_RUNTIME_ENTRIES - existingEntryCount },
+      (_, index) => writeFile(join(runtimeDir!, `ignored-${index}.txt`), "x"),
+    ));
+    const inspectionBound = await runCli(["data", "list", "--json"], runtimeDir);
+    expect(inspectionBound.result).toEqual(expect.objectContaining({
+      inspectedEntries: MAX_INSPECTED_RUNTIME_ENTRIES,
+      truncated: true,
+      limits: expect.objectContaining({
+        inspectedEntries: MAX_INSPECTED_RUNTIME_ENTRIES,
+        classifiedEntries: MAX_CLASSIFIED_RUNTIME_ENTRIES,
+      }),
+    }));
+  });
+
+  test("preserves a disposable daemon log when shutdown cannot be confirmed", async () => {
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-close-timeout-"));
+    session = `close-timeout-${process.pid}`;
+    const daemonLog = join(runtimeDir, `${session}.log`);
+    await writeFile(daemonLog, "diagnostic evidence");
+    const fakeDaemon = await startFakeDaemon(runtimeDir, session, "disposable");
+    try {
+      const closed = await runCliResult([
+        "--session",
+        session,
+        "close",
+        "--json",
+      ], runtimeDir, {
+        BLOP_BROWSER_CLOSE_TIMEOUT_MS: "25",
+      });
+
+      expect(closed.exitCode).toBe(1);
+      expect(closed.response.error).toEqual(expect.objectContaining({
+        code: "cleanup_timeout",
+        message: expect.stringContaining("daemon log was preserved"),
+      }));
+      expect(await readFile(daemonLog, "utf8")).toBe("diagnostic evidence");
+    } finally {
+      await fakeDaemon.close();
+    }
+  });
+
   test("describes Camoufox as compatibility coverage without bypass marketing", async () => {
     const source = await readFile(join(import.meta.dir, "../../src/cli.ts"), "utf8");
 
@@ -140,6 +542,7 @@ describe("blop-browser CLI", () => {
         destroyable: true,
       },
     }));
+    expect(status.result).not.toHaveProperty("cdpEndpointIdentity");
   }, 30_000);
 
   test("discovers tool names and schemas without an MCP client", async () => {
@@ -220,6 +623,7 @@ describe("blop-browser CLI", () => {
     const profileDirectory = join(runtimeDir, `${session}-profile`);
     const downloadsDirectory = join(runtimeDir, `${session}-downloads`);
     const artifactDirectory = join(runtimeDir, `${session}-artifacts`);
+    const daemonLog = join(runtimeDir, `${session}.log`);
 
     await runCli(["--session", session, "open", `${server.url}?owner=persisted`, "--json"], runtimeDir);
     await runCli(["--session", session, "close", "--json"], runtimeDir);
@@ -241,6 +645,7 @@ describe("blop-browser CLI", () => {
     expect(await pathExists(profileDirectory)).toBe(false);
     expect(await pathExists(downloadsDirectory)).toBe(false);
     expect(await pathExists(artifactDirectory)).toBe(false);
+    expect(await pathExists(daemonLog)).toBe(false);
   }, 30_000);
 
   test("removes disposable profile state on close and reports its expiry", async () => {
@@ -257,6 +662,7 @@ describe("blop-browser CLI", () => {
     const profileDirectory = join(runtimeDir, `${session}-profile`);
     const downloadsDirectory = join(runtimeDir, `${session}-downloads`);
     const artifactDirectory = join(runtimeDir, `${session}-artifacts`);
+    const daemonLog = join(runtimeDir, `${session}.log`);
 
     await runCli([
       "--session",
@@ -281,6 +687,7 @@ describe("blop-browser CLI", () => {
     expect(await pathExists(profileDirectory)).toBe(false);
     expect(await pathExists(downloadsDirectory)).toBe(false);
     expect(await pathExists(artifactDirectory)).toBe(false);
+    expect(await pathExists(daemonLog)).toBe(false);
 
     await runCli([
       "--session",
@@ -427,6 +834,7 @@ describe("blop-browser CLI", () => {
     expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
       version: 1,
       mode: "chromium-headed",
+      telemetry: "off",
     });
 
     const diagnosis = await runCli(["doctor", "--json"], runtimeDir, {
@@ -435,7 +843,7 @@ describe("blop-browser CLI", () => {
     });
     expect(diagnosis.result).toEqual(expect.objectContaining({
       browser: expect.objectContaining({ name: "chromium", connection: "launch", headless: false }),
-      configuration: { path: configPath, mode: "chromium-headed" },
+      configuration: { path: configPath, mode: "chromium-headed", telemetry: "off" },
     }));
   });
 
@@ -904,7 +1312,7 @@ describe("blop-browser CLI", () => {
     ], runtimeDir, cdpEnvironment);
     expect(configured.result).toEqual(expect.objectContaining({
       mode: "chrome-cdp",
-      cdpEndpoint: cdpChrome.endpoint,
+      cdpEndpoint: displayEndpoint(cdpChrome.endpoint),
     }));
 
     await expect(runCli([
@@ -924,6 +1332,16 @@ describe("blop-browser CLI", () => {
       "--json",
     ], runtimeDir, cdpEnvironment);
     expect(navigation.ok).toBe(true);
+    expect(navigation.privacy).toEqual(expect.objectContaining({
+      mode: "attached-cdp",
+      retention: {
+        localArtifacts: "until-destroy",
+        managedBrowserStorage: "not-managed",
+        externalBrowserStorage: "preserved",
+        daemonLog: "until-destroy",
+      },
+      remoteControlEndpoint: displayEndpoint(cdpChrome.endpoint),
+    }));
 
     const snapshot = await runCli(["--session", session, "snapshot", "--json"], runtimeDir, cdpEnvironment);
     expect(snapshot.result?.content).toContain("External Chrome");
@@ -943,6 +1361,7 @@ describe("blop-browser CLI", () => {
     expect(status.result).toEqual(expect.objectContaining({
       browser: "chromium",
       connection: "cdp",
+      cdpEndpoint: displayEndpoint(cdpChrome.endpoint),
       url: new URL(server.url).href,
       sessionScope: {
         mode: "existing-profile",
@@ -954,7 +1373,23 @@ describe("blop-browser CLI", () => {
         expiresAt: null,
         destroyable: false,
       },
+      privacy: expect.objectContaining({
+        mode: "attached-cdp",
+        retention: {
+          localArtifacts: "until-destroy",
+          managedBrowserStorage: "not-managed",
+          externalBrowserStorage: "preserved",
+          daemonLog: "until-destroy",
+        },
+        locations: expect.objectContaining({
+          profileDirectory: null,
+          downloadsDirectory: null,
+          artifactDirectory: join(runtimeDir, `${session}-artifacts`),
+        }),
+        remoteControlEndpoint: displayEndpoint(cdpChrome.endpoint),
+      }),
     }));
+    expect(status.result).not.toHaveProperty("cdpEndpointIdentity");
 
     await expect(runCli([
       "--session",
@@ -1213,6 +1648,67 @@ async function availablePort() {
   });
 }
 
+async function startFakeDaemon(
+  stateDir: string,
+  daemonSession: string,
+  profileMode: "persistent" | "disposable",
+) {
+  const token = "fake-daemon-token";
+  const daemonPid = process.pid;
+  const server = createNetServer((socket) => {
+    socket.setEncoding("utf8");
+    let input = "";
+    socket.on("data", (chunk) => {
+      input += chunk;
+      const newline = input.indexOf("\n");
+      if (newline < 0) return;
+      const request = JSON.parse(input.slice(0, newline)) as {
+        id: string;
+        token: string;
+        method: string;
+      };
+      if (request.token !== token) {
+        socket.end(`${JSON.stringify({
+          id: request.id,
+          ok: false,
+          error: { code: "unauthorized", message: "Invalid token." },
+        })}\n`);
+        return;
+      }
+      const result = request.method === "ping"
+        ? { pid: daemonPid }
+        : request.method === "status"
+        ? { active: true, sessionScope: { mode: profileMode } }
+        : request.method === "shutdown"
+        ? { closed: true }
+        : {};
+      socket.end(`${JSON.stringify({ id: request.id, ok: true, result })}\n`);
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Fake daemon did not expose a TCP port.");
+  }
+  await writeFile(join(stateDir, `${daemonSession}.json`), JSON.stringify({
+    version: 1,
+    session: daemonSession,
+    pid: daemonPid,
+    port: address.port,
+    token,
+    startedAt: new Date().toISOString(),
+  }));
+  return {
+    close: async () => await new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
 async function runCli(
   args: string[],
   stateDir: string,
@@ -1289,6 +1785,14 @@ async function runCliText(
 
 function currentOwner() {
   return typeof process.getuid === "function" ? `uid:${process.getuid()}` : `user:${process.env.USER ?? "unknown"}`;
+}
+
+function displayEndpoint(endpoint: string) {
+  const url = new URL(endpoint);
+  const port = url.port || (url.protocol === "http:" || url.protocol === "ws:"
+    ? "80"
+    : "443");
+  return `${url.protocol}//${url.hostname}:${port}`;
 }
 
 async function pathExists(path: string) {

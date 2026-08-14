@@ -99,6 +99,11 @@ export {
 } from "./session/camoufox-container.js";
 
 export {
+  resolveInternetEgressProbe,
+  type InternetEgressProbeDisclosure,
+} from "./session/egress.js";
+
+export {
   browserSessionDirectories,
   defaultBrowserRuntimeDirectory,
   getBrowserSessionScope,
