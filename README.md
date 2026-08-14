@@ -15,6 +15,12 @@ model, planner, or autonomous agent loop; your host owns orchestration and
 approval decisions. Review the [known limitations](docs/known-limitations.md)
 before choosing it for a workflow.
 
+Blop Browser has no hosted free or paid tier. Commands and APIs run in
+infrastructure you operate or in a browser you explicitly attach. The separate
+Blop QA product is not a hosting tier for this package. Review the
+[capability availability](docs/capability-availability.md) for the local
+contract and the dated official-source audit.
+
 Use Blop Browser only on websites, accounts, and data you own or are authorized
 to access. Read the [acceptable-use policy](ACCEPTABLE_USE.md) before setup.
 

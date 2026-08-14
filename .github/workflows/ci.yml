@@ -41,6 +41,9 @@ jobs:
       - name: Check public claims evidence
         run: bun run check:claims
 
+      - name: Check capability availability
+        run: bun run check:availability
+
       - name: Check acceptable-use documentation
         run: bun run check:acceptable-use
 
