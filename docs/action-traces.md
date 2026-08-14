@@ -63,6 +63,13 @@ Session start, close, and destroy transitions use lifecycle events. A destroy
 response can include its final lifecycle event, but `destroy` then removes the
 managed artifact directory, including retained trace files.
 
+Human-control handoffs add ordered lifecycle events for pause request, paused
+state, human acquisition, and automation resume. The optional takeover message
+is represented only by a redaction summary, and the human-control lease is
+never stored. Commands rejected while automation is paused remain failed action
+events with cached pre-pause URLs. Request IDs in these events are coordination
+tokens, not proof that a person acted or an authentication record.
+
 ## Use the embedding API
 
 Create a recorder and pass it to `createBrowserTools()` when you embed the
@@ -125,6 +132,11 @@ offline export.
 > Screenshots contain pixels from the page, and trace metadata can reveal
 > visited origins, command timing, target labels, and workflow intent. Don't
 > treat redaction as proof that an export is anonymous or safe to publish.
+
+Human-entered values can also remain in screenshots, explicit extraction,
+arbitrary page text, logs, or URLs. Default snapshots mask password fields and
+credential-like control values, but this conservative rule is not a data-loss
+prevention system.
 
 Follow the [acceptable-use policy](../ACCEPTABLE_USE.md): collect only the data
 needed for an authorized workflow, and handle personal, confidential, and

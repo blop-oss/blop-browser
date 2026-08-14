@@ -18,9 +18,11 @@ type CliResult = {
   ok: boolean;
   result?: any;
   error?: {
+    code?: string;
     message: string;
     contentBoundary?: { source: string; trust: string };
     policy?: { code: string; toolName: string; category: string };
+    control?: { code: string; state: string; command: string; requestId?: string };
   };
 };
 
@@ -34,8 +36,7 @@ afterEach(async () => {
     await runCli(["--session", session, "close", "--json"], runtimeDir).catch(() => undefined);
   }
   if (cdpChrome) {
-    cdpChrome.process.kill();
-    await cdpChrome.process.exited;
+    await stopProcess(cdpChrome.process);
   }
   await server?.close();
   if (runtimeDir) await rm(runtimeDir, { recursive: true, force: true });
@@ -881,6 +882,183 @@ describe("blop-browser CLI", () => {
     });
   });
 
+  test("fails takeover before pausing when a managed headless session has no human access path", async () => {
+    server = await startFixtureServer([{ path: "/", body: "<h1>Challenge</h1>" }]);
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-takeover-unavailable-"));
+    session = `takeover-unavailable-${process.pid}`;
+    await runCli(["--session", session, "open", server.url, "--json"], runtimeDir);
+
+    const result = await runCliResult([
+      "--session",
+      session,
+      "takeover",
+      "request",
+      "challenge",
+      "--json",
+    ], runtimeDir);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.response.error).toEqual(expect.objectContaining({
+      code: "takeover_unavailable",
+      control: expect.objectContaining({
+        code: "takeover_unavailable",
+        state: "automation",
+        command: "request-takeover",
+      }),
+    }));
+    expect(result.response.error?.message).toContain("headed managed browser or attached external browser");
+    expect((await runCli(["--session", session, "status", "--json"], runtimeDir)).result?.control)
+      .toEqual(expect.objectContaining({ state: "automation", revision: 0 }));
+  }, 30_000);
+
+  test("runs a deterministic loopback challenge through takeover and explicit resume", async () => {
+    const secret = "human-password-must-not-enter-trace";
+    const privateMessage = `Type ${secret} into the challenge`;
+    server = await startFixtureServer([{
+      path: "/",
+      body: `<main>
+        <h1>Verification challenge</h1>
+        <label>Password <input type="password" autocomplete="current-password" /></label>
+        <button onclick="document.querySelector('#outcome').textContent = 'Human completed challenge'">Complete</button>
+        <p id="outcome">Waiting for human</p>
+      </main>`,
+    }]);
+    runtimeDir = await mkdtemp(join(tmpdir(), "blop-browser-takeover-e2e-"));
+    const externalProfileDirectory = join(runtimeDir, "external-profile");
+    cdpChrome = await startCdpChrome(externalProfileDirectory);
+    session = `takeover-e2e-${process.pid}`;
+    const environment = { BLOP_BROWSER_HEADLESS: "__UNSET__" };
+
+    const externalBrowser = await chromium.connectOverCDP(cdpChrome.endpoint);
+    const externalContext = externalBrowser.contexts()[0]!;
+    const humanPage = externalContext.pages().at(-1) ?? await externalContext.newPage();
+    try {
+      await runCli([
+        "--session",
+        session,
+        "--cdp-endpoint",
+        cdpChrome.endpoint,
+        "--attach-existing",
+        "open",
+        server.url,
+        "--json",
+      ], runtimeDir, environment);
+      const before = await runCli(["--session", session, "snapshot", "--json"], runtimeDir, environment);
+      const staleRef = JSON.parse(before.result?.content).semanticSnapshot
+        .match(/\[((?:f\d+)?e\d+|x\d+)\] button "Complete"/)?.[1];
+      expect(staleRef).toBeTruthy();
+
+      const requested = await runCli([
+        "--session",
+        session,
+        "takeover",
+        "request",
+        "challenge",
+        "--message",
+        privateMessage,
+        "--json",
+      ], runtimeDir, environment);
+      expect(requested.result).toEqual(expect.objectContaining({
+        access: expect.objectContaining({ kind: "attached-browser" }),
+        control: expect.objectContaining({ state: "paused", reason: "challenge" }),
+      }));
+      const requestId = requested.result?.control.requestId as string;
+      const acquired = await runCli([
+        "--session", session, "takeover", "control", requestId, "--json",
+      ], runtimeDir, environment);
+      expect(acquired.result?.control).toEqual(expect.objectContaining({ state: "human-control" }));
+      const leaseId = acquired.result?.lease.leaseId as string;
+
+      const blocked = await runCliResult([
+        "--session", session, "snapshot", "--json",
+      ], runtimeDir, environment);
+      expect(blocked.exitCode).toBe(1);
+      expect(blocked.response.error?.control).toEqual(expect.objectContaining({
+        code: "automation_paused",
+        state: "human-control",
+        command: "browser_snapshot",
+        requestId,
+      }));
+
+      await humanPage.getByLabel("Password").fill(secret);
+      await humanPage.getByRole("button", { name: "Complete" }).click();
+      await humanPage.getByText("Human completed challenge").waitFor({ timeout: 2_000 });
+      await humanPage.evaluate((value) => { document.title = value; }, secret);
+      const pausedStatus = await runCli([
+        "--session", session, "status", "--json",
+      ], runtimeDir, environment);
+      expect(pausedStatus.result).toEqual(expect.objectContaining({
+        pageState: "cached",
+        control: expect.objectContaining({ state: "human-control" }),
+      }));
+      expect(pausedStatus.result?.title).not.toBe(secret);
+      expect(JSON.stringify(pausedStatus)).not.toContain(secret);
+      await humanPage.evaluate(() => { document.title = "Challenge complete"; });
+
+      const resumed = await runCli([
+        "--session", session, "takeover", "resume", requestId, leaseId,
+        "--outcome", "completed", "--json",
+      ], runtimeDir, environment);
+      expect(resumed.result?.control).toEqual(expect.objectContaining({ state: "automation" }));
+
+      const stale = await runCliResult([
+        "--session", session, "click", staleRef!, "--json",
+      ], runtimeDir, environment);
+      expect(stale.exitCode).toBe(1);
+      expect(stale.response.error?.message).toContain("Unknown or stale element reference");
+      const after = await runCli(["--session", session, "snapshot", "--json"], runtimeDir, environment);
+      expect(after.result?.content).toContain("Human completed challenge");
+      expect(after.result?.content).not.toContain(secret);
+
+      const trace = await runCli(["--session", session, "trace", "--json"], runtimeDir, environment);
+      const commands = trace.result?.events.map((event: { command: string }) => event.command);
+      expect(commands).toEqual(expect.arrayContaining([
+        "browser_control_pause_requested",
+        "browser_control_paused",
+        "browser_control_human_acquired",
+        "browser_control_automation_resumed",
+      ]));
+      expect(commands.indexOf("browser_control_pause_requested"))
+        .toBeLessThan(commands.indexOf("browser_control_paused"));
+      expect(commands.indexOf("browser_control_paused"))
+        .toBeLessThan(commands.indexOf("browser_control_human_acquired"));
+      expect(commands.indexOf("browser_control_human_acquired"))
+        .toBeLessThan(commands.indexOf("browser_control_automation_resumed"));
+      expect(JSON.stringify(trace)).not.toContain(secret);
+      expect(JSON.stringify(trace)).not.toContain(privateMessage);
+      expect(JSON.stringify(trace)).not.toContain(leaseId);
+
+      const closeRequested = await runCli([
+        "--session", session, "takeover", "request", "other", "--json",
+      ], runtimeDir, environment);
+      const closeRequestId = closeRequested.result?.control.requestId as string;
+      const closeAcquired = await runCli([
+        "--session", session, "takeover", "control", closeRequestId, "--json",
+      ], runtimeDir, environment);
+      await humanPage.close();
+      const closeResumed = await runCli([
+        "--session", session, "takeover", "resume", closeRequestId,
+        closeAcquired.result?.lease.leaseId, "--json",
+      ], runtimeDir, environment);
+      expect(closeResumed.result).toEqual(expect.objectContaining({
+        pageAvailable: false,
+        control: expect.objectContaining({ state: "automation" }),
+      }));
+      const unavailablePage = await runCliResult([
+        "--session", session, "snapshot", "--json",
+      ], runtimeDir, environment);
+      expect(unavailablePage.response.error).toEqual(expect.objectContaining({
+        code: "page_unavailable_after_takeover",
+        control: expect.objectContaining({
+          code: "page_unavailable_after_takeover",
+          command: "reconcile-page",
+        }),
+      }));
+    } finally {
+      await externalBrowser.close();
+    }
+  }, 30_000);
+
   test("connects to Chrome over CDP without closing the external browser", async () => {
     server = await startFixtureServer([
       { path: "/", body: "<main><h1>External Chrome</h1></main>" },
@@ -1192,9 +1370,38 @@ async function startCdpChrome(profileDirectory: string) {
     } catch {}
     await Bun.sleep(100);
   }
-  process.kill();
-  await process.exited;
+  await stopProcess(process);
   throw new Error("Chrome CDP endpoint did not become ready.");
+}
+
+async function stopProcess(
+  process: ReturnType<typeof Bun.spawn>,
+  timeoutMs = 2_000,
+) {
+  if (process.exitCode !== null) return;
+  process.kill();
+  if (await processExitedWithin(process, timeoutMs)) return;
+  process.kill(9);
+  if (!await processExitedWithin(process, timeoutMs)) {
+    throw new Error("Browser test process did not exit after SIGKILL.");
+  }
+}
+
+async function processExitedWithin(
+  process: ReturnType<typeof Bun.spawn>,
+  timeoutMs: number,
+) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      process.exited.then(() => true),
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 async function availablePort() {
@@ -1247,11 +1454,15 @@ async function runCliResult(
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
+  const stdoutPromise = new Response(process.stdout).text();
+  const stderrPromise = new Response(process.stderr).text();
+  const exited = await processExitedWithin(process, 20_000);
+  if (!exited) {
+    await stopProcess(process);
+    throw new Error(`CLI process timed out: ${args.join(" ")}`);
+  }
+  const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
+  const exitCode = process.exitCode;
   return {
     stdout,
     stderr,

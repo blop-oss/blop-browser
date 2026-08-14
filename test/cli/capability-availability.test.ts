@@ -199,6 +199,16 @@ describe("capability availability", () => {
     expect(result.stderr).toContain("Missing capability: Session metrics");
   });
 
+  test("requires availability for the advertised human takeover", async () => {
+    const document = await mutatedDocument((source) =>
+      removeTableRow(source, "Human takeover"),
+    );
+    const result = await runChecker("--document", document);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Missing capability: Human takeover");
+  });
+
   test("rejects an unofficial or undated source snapshot", async () => {
     const document = await mutatedDocument((source) =>
       replaceTableCell(

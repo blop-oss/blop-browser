@@ -29,6 +29,14 @@ import {
 } from "../session/scope.js";
 import type { HarnessAction, HarnessBrowserLog } from "../types.js";
 import type { FinishState, NativeToolBridge } from "../tools/types.js";
+import {
+  BrowserControlError,
+  createBrowserControlSession,
+  type BrowserControlStatus,
+  type BrowserHumanControlLease,
+  type BrowserTakeoverOutcome,
+  type BrowserTakeoverReason,
+} from "../session/control.js";
 
 export type BrowserName = "chromium" | "camoufox";
 
@@ -48,9 +56,28 @@ export type HarnessCliRuntime = {
   status: () => Promise<Record<string, unknown>>;
   trace: () => HarnessTraceExport;
   metrics: () => HarnessSessionMetrics;
+  requestTakeover: (input: {
+    reason: BrowserTakeoverReason;
+    message?: string;
+  }) => Promise<{ control: BrowserControlStatus; access: CliHumanAccess }>;
+  takeControl: (requestId: string) => Promise<{
+    control: BrowserControlStatus;
+    access: CliHumanAccess;
+    lease: BrowserHumanControlLease;
+  }>;
+  resumeAutomation: (input: {
+    requestId: string;
+    leaseId: string;
+    outcome?: BrowserTakeoverOutcome;
+  }) => Promise<{ control: BrowserControlStatus; pageAvailable: boolean }>;
   setExpiresAt: (expiresAt: string | null) => void;
   close: (reason?: "close" | "destroy" | "idle") => Promise<HarnessTraceEvent | undefined>;
 };
+
+type CliHumanAccess =
+  | Readonly<{ kind: "managed-window"; instruction: string }>
+  | Readonly<{ kind: "attached-browser"; instruction: string }>
+  | Readonly<{ kind: "unavailable"; instruction: string }>;
 
 export async function createHarnessCliRuntime(
   session: string,
@@ -91,6 +118,20 @@ export async function createHarnessCliRuntime(
     context = await browser.newContext(contextOptions);
   }
   const page = launched.page ?? await context.newPage();
+  const humanAccess: CliHumanAccess = cdpEndpoint
+    ? Object.freeze({
+      kind: "attached-browser",
+      instruction: "Use the configured attached browser. The CLI cannot verify that it is visible or reachable by the intended person.",
+    })
+    : headless
+    ? Object.freeze({
+      kind: "unavailable",
+      instruction: "Restart with a headed managed browser or attach an external browser before requesting takeover.",
+    })
+    : Object.freeze({
+      kind: "managed-window",
+      instruction: "Use the visible managed browser window.",
+    });
   return createRuntimeFromBrowser(
     session,
     artifactDirectory,
@@ -106,6 +147,7 @@ export async function createHarnessCliRuntime(
     sessionScope,
     initialTrace,
     initialMetrics,
+    humanAccess,
   );
 }
 
@@ -235,6 +277,10 @@ async function createRuntimeFromBrowser(
   sessionScope?: BrowserSessionScope,
   initialTrace?: HarnessTraceExport | null,
   initialMetrics?: HarnessSessionMetrics | null,
+  humanAccess: CliHumanAccess = Object.freeze({
+    kind: "unavailable",
+    instruction: "A human access path was not configured for this browser session.",
+  }),
 ): Promise<HarnessCliRuntime> {
   const actions: HarnessAction[] = [];
   const browserLogs: HarnessBrowserLog[] = [];
@@ -242,7 +288,14 @@ async function createRuntimeFromBrowser(
   const pages: Page[] = [];
   let currentSessionScope = sessionScope;
   let closed = false;
+  let activePage = page;
+  let cachedPageStatus = {
+    url: pageUrl(page),
+    title: await page.title().catch(() => ""),
+  };
+  const browserVersion = resolvedBrowserVersion(browser, context);
   const safetyMode = process.env.BLOP_BROWSER_READ_ONLY === "1" ? "read-only" : "read-write";
+  const control = createBrowserControlSession();
   const traceRecorder = createTraceRecorder({
     identity: {
       sessionId: session,
@@ -345,11 +398,27 @@ async function createRuntimeFromBrowser(
     finishState,
     browserLogs,
     safety: { mode: safetyMode },
+    control,
     traceRecorder,
     sessionMetricsRecorder,
+    setActivePage: (next) => {
+      activePage = next;
+      cachedPageStatus = { ...cachedPageStatus, url: pageUrl(next) || cachedPageStatus.url };
+    },
+    onAction: (action) => {
+      // A rejected automation command must not indirectly touch Playwright
+      // through the live progress hook while human control owns the session.
+      const url = action.metadata?.controlBlocked === true ? "" : pageUrl(activePage);
+      cachedPageStatus = {
+        url: url || cachedPageStatus.url,
+        title: typeof action.metadata?.title === "string"
+          ? action.metadata.title
+          : cachedPageStatus.title,
+      };
+    },
   });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
-  recordSessionEvent(traceRecorder, "browser_session_start", page, {
+  recordSessionEvent(traceRecorder, "browser_session_start", cachedPageStatus.url, {
     browser: browserName,
     connection,
     profileMode: currentSessionScope?.mode ?? "unknown",
@@ -379,16 +448,27 @@ async function createRuntimeFromBrowser(
       };
     },
     status: async () => {
+      let livePageStatus: typeof cachedPageStatus | undefined;
+      try {
+        livePageStatus = await control.runAutomation("browser-status", async () => ({
+          url: pageUrl(activePage) || cachedPageStatus.url,
+          title: await activePage.title().catch(() => cachedPageStatus.title),
+        }));
+        cachedPageStatus = livePageStatus;
+      } catch (error) {
+        if (!(error instanceof BrowserControlError)) throw error;
+      }
       const trace = traceRecorder.snapshot();
       return {
         session,
         browser: browserName,
-        browserVersion: resolvedBrowserVersion(browser, context),
+        browserVersion,
         connection,
         cdpEndpoint: cdpEndpoint ?? null,
         pid: process.pid,
-        url: page.url(),
-        title: await page.title().catch(() => ""),
+        url: cachedPageStatus.url,
+        title: cachedPageStatus.title,
+        pageState: livePageStatus ? "live" : "cached",
         pages: pages.length,
         actions: actions.length,
         traceEvents: trace.events.length,
@@ -407,20 +487,48 @@ async function createRuntimeFromBrowser(
         artifactDirectory,
         sessionScope: currentSessionScope ? { ...currentSessionScope } : undefined,
         safetyMode,
+        control: control.status(),
+        humanAccess,
       };
     },
     trace: () => traceRecorder.snapshot(),
     metrics: () => sessionMetricsRecorder.snapshot(),
+    requestTakeover: async (input) => {
+      if (humanAccess.kind === "unavailable") {
+        throw new BrowserControlError({
+          code: "takeover_unavailable",
+          state: control.status().state,
+          command: "request-takeover",
+          message: "Human takeover requires a headed managed browser or attached external browser. Restart headed or attach a configured browser.",
+        });
+      }
+      const takeoverStatus = await control.requestTakeover(input);
+      await persistEvidence();
+      return { control: takeoverStatus, access: humanAccess };
+    },
+    takeControl: async (requestId) => {
+      const lease = control.takeControl({ requestId });
+      await persistEvidence();
+      return { control: control.status(), access: humanAccess, lease };
+    },
+    resumeAutomation: async (input) => {
+      const resumed = control.resumeAutomation(input);
+      const pageAvailable = pages.some((candidate) =>
+        typeof candidate.isClosed !== "function" || !candidate.isClosed());
+      await persistEvidence();
+      return { control: resumed, pageAvailable };
+    },
     setExpiresAt: (expiresAt) => {
       if (currentSessionScope) currentSessionScope = { ...currentSessionScope, expiresAt };
     },
     close: async (reason = "close") => {
       if (closed) return undefined;
       closed = true;
+      control.close();
       const traceEvent = recordSessionEvent(
         traceRecorder,
         reason === "destroy" ? "browser_session_destroy" : "browser_session_close",
-        page,
+        cachedPageStatus.url,
         { reason, profileMode: currentSessionScope?.mode ?? "unknown" },
         reason === "destroy" ? "Browser session state destroyed." : "Browser session closed.",
       );
@@ -443,12 +551,11 @@ async function createRuntimeFromBrowser(
 function recordSessionEvent(
   recorder: ReturnType<typeof createTraceRecorder>,
   name: "browser_session_start" | "browser_session_close" | "browser_session_destroy",
-  page: Page,
+  url: string,
   input: Record<string, unknown>,
   output: string,
 ) {
   const timestamp = new Date().toISOString();
-  const url = pageUrl(page);
   return recorder.record({
     name,
     input,

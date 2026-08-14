@@ -46,6 +46,8 @@ Blop Browser differs from general-purpose browser automation by combining:
   execution.
 - Persistent or disposable managed storage separated by `--session` name.
 - Existing Chrome and authorized profile reuse over CDP.
+- An explicit automation-to-human control handoff for active headed or attached
+  sessions.
 - Optional Camoufox sessions for compatibility testing across browser
   fingerprints.
 - A public TypeScript API for embedding the same tools in your own agent host.
@@ -277,6 +279,95 @@ They retain no payload content and report provider token counts as unavailable,
 not as character-based estimates. Read the
 [session metrics contract and retention rules](docs/session-metrics.md) before
 using an aggregate as evidence.
+
+## Hand control to a person
+
+Pause harness automation when a person needs to handle a challenge or a
+sensitive step in an active headed managed browser or an attached browser. A
+managed headless session has no browser access path for a person, so a takeover
+request fails before pausing it.
+
+```bash
+blop-browser config --mode chromium-headed
+blop-browser --session review open https://example.com
+blop-browser --session review takeover request challenge \
+  --message "Complete the visible challenge." --json
+blop-browser --session review takeover control REQUEST_ID --json
+# The person uses the reported managed window.
+blop-browser --session review takeover resume REQUEST_ID LEASE_ID \
+  --outcome completed --json
+```
+
+For an attached browser, the response identifies the configured attached
+browser. The CLI cannot verify that a remote or local CDP endpoint is visible
+or reachable by the intended person. The host or operator must provide the
+actual browser access, notification, and user interface.
+
+`takeover request` changes the state from `automation` to `pausing`, rejects new
+harness commands before any `Page` access, waits for already admitted commands,
+and then reports `paused`. `takeover control` returns a lease and changes the
+state to `human-control`. `takeover resume` requires the matching request and
+lease IDs before returning to `automation`. These IDs serialize callers; they
+are not authentication, authorization, or evidence that a person acted. Any
+caller authenticated to the daemon can invoke the transition commands.
+
+While automation is paused, `status --json` returns the cached pre-pause URL
+and title with `pageState: "cached"`. Page scripts and network activity continue,
+and page JavaScript or an external CDP client can still race the person. Pause
+and resume invalidate all semantic refs, so take a new snapshot before the next
+agent action. If the person closes the active page, leave another tracked page
+open for the harness to select after resume; if none remains, the next tool call
+returns a recorded structured failure.
+
+Embedding hosts can use the same framework-neutral controller and transition
+callback:
+
+```ts
+import {
+  createBrowserControlSession,
+  createBrowserTools,
+} from "@blopai/browser-harness";
+
+const control = createBrowserControlSession({
+  onTransition: (transition) => hostLifecycleSink(transition),
+});
+const tools = await createBrowserTools({
+  // ...page, action, artifact, and finish-state options
+  control,
+});
+
+const paused = await control.requestTakeover({
+  reason: "sensitive-step",
+  message: "Enter the account recovery value.",
+});
+const lease = control.takeControl({ requestId: paused.requestId! });
+// The host exposes the browser and waits for its operator workflow here.
+control.resumeAutomation({
+  requestId: lease.requestId,
+  leaseId: lease.leaseId,
+  outcome: "completed",
+});
+```
+
+Transition callback failures are bounded in `control.status()` and don't roll
+back or retry a transition. The action trace records pause, acquisition, and
+resume in order, redacts the optional message, and never stores the lease.
+Semantic snapshots conservatively mask values from password fields and
+credential-like inputs, textareas, and editable regions. This masking is not
+data-loss prevention: screenshots, explicit extraction, arbitrary rendered
+text, browser logs, and network activity can still expose sensitive data.
+
+Run the bundled loopback-only automated ownership proof against the built
+package:
+
+```bash
+bun run demo:takeover
+```
+
+It verifies command draining, concurrent rejection, resume, stale-ref
+invalidation, redaction, and ordered trace transitions. It does not provide or
+test a host UI, notification delivery, human identity, or proof that a person
+acted.
 
 ## Connect to existing Chrome
 

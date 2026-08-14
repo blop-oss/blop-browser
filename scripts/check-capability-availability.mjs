@@ -37,6 +37,7 @@ const requiredCapabilities = [
   "Camoufox",
   "Recordings and traces",
   "Session metrics",
+  "Human takeover",
   "Proxy service",
   "Retention and deletion",
   "Limits and quotas",

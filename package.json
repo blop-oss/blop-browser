@@ -19,6 +19,7 @@
     "skills",
     "docs",
     "scripts/demo-positioning-proof.mjs",
+    "scripts/demo-human-takeover.mjs",
     "benchmarks/README.md",
     "benchmarks/result.schema.json",
     "benchmarks/detection/README.md",
@@ -91,6 +92,7 @@
     "test:cli": "bun test test/cli",
     "test:benchmark-smoke": "bun test test/benchmarks/mind2web.test.ts",
     "demo:positioning": "bun run build && node scripts/demo-positioning-proof.mjs",
+    "demo:takeover": "bun run build && node scripts/demo-human-takeover.mjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },
