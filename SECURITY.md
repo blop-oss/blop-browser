@@ -10,12 +10,12 @@ documents normal browser, host, recording, and retention behavior.
 ## Supported versions
 
 Security fixes target the latest published release. This table is current for
-the `0.1.8` release and must be updated when a new version is published.
+the `0.1.9` release and must be updated when a new version is published.
 
 | Version             | Security support |
 | ------------------- | ---------------- |
-| `0.1.8`             | Supported        |
-| `0.1.7` and earlier | Not supported    |
+| `0.1.9`             | Supported        |
+| `0.1.8` and earlier | Not supported    |
 | Unreleased `master` | Best effort      |
 
 Upgrade to the latest release before reporting a problem that only affects an
