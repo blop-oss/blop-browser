@@ -66,6 +66,22 @@ export {
 } from "./trace-recorder.js";
 
 export {
+  createSessionMetricsRecorder,
+  emptySessionMetrics,
+  MAX_SESSION_METRICS_BYTES,
+  validateSessionMetrics,
+  type HarnessSessionMetrics,
+  type SessionCommandMetrics,
+  type SessionMetricApprovals,
+  type SessionMetricDuration,
+  type SessionMetricModelImages,
+  type SessionMetricVolume,
+  type SessionMetricsActionOptions,
+  type SessionMetricsRecorder,
+  type SessionMetricsRecorderOptions,
+} from "./session-metrics.js";
+
+export {
   ensurePlaywrightContainer,
   startPlaywrightContainer,
   stopPlaywrightContainer,

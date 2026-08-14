@@ -62,6 +62,9 @@ jobs:
       - name: Run local positioning proof
         run: bun run demo:positioning
 
+      - name: Run local human takeover proof
+        run: bun run demo:takeover
+
       - name: Tests (browser)
         run: |
           for test_file in test/browser/*.test.ts; do

@@ -5,6 +5,7 @@ import type { HarnessAction } from "../../src/types.js";
 import type { BrowserSafetyPolicy } from "../../src/tools/types.js";
 import type { TraceRecorder } from "../../src/trace-recorder.js";
 import type { BrowserControlSession } from "../../src/session/control.js";
+import type { SessionMetricsRecorder } from "../../src/session-metrics.js";
 import { startFixtureServer, type FixtureRoute } from "../fixtures/server.js";
 
 let sharedBrowser: Browser | undefined;
@@ -21,6 +22,7 @@ export async function setupToolPage(
     safety?: BrowserSafetyPolicy;
     control?: BrowserControlSession;
     traceRecorder?: TraceRecorder;
+    sessionMetricsRecorder?: SessionMetricsRecorder;
     captureStepScreenshots?: boolean;
     liveFrame?: () => { data: Buffer; seq?: number; timestamp?: number } | null;
     configureContext?: (
@@ -60,6 +62,7 @@ export async function setupToolPage(
     safety: options.safety,
     control: options.control,
     traceRecorder: options.traceRecorder,
+    sessionMetricsRecorder: options.sessionMetricsRecorder,
     captureStepScreenshots: options.captureStepScreenshots,
     liveFrame: options.liveFrame,
   });

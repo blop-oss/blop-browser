@@ -10,6 +10,7 @@ import type {
 } from "../types.js";
 import type { TraceRecorder } from "../trace-recorder.js";
 import type { BrowserControlSession } from "../session/control.js";
+import type { SessionMetricsRecorder } from "../session-metrics.js";
 
 export type NativeModelImage = {
   /** Data URL kept out of the textual tool result and attached to the next
@@ -148,6 +149,9 @@ export type BrowserToolContext = {
   traceRecorder?: TraceRecorder;
   /** Optional session ownership gate for explicit human takeover. */
   control?: BrowserControlSession;
+  /** Optional aggregate metrics sink. It records counts and payload sizes,
+   * never raw tool inputs or page output. */
+  sessionMetricsRecorder?: SessionMetricsRecorder;
   /** Optional host-owned enforcement for browser interactions. */
   safety?: BrowserSafetyPolicy;
   /**
@@ -197,6 +201,6 @@ export type BrowserToolContext = {
   record: (
     name: string,
     input: Record<string, unknown>,
-    fn: () => Promise<NativeToolPayload>,
+    fn: (observations: { retry: () => void }) => Promise<NativeToolPayload>,
   ) => NativeToolResult;
 };

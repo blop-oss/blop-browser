@@ -61,6 +61,19 @@ describe("Mind2Web benchmark", () => {
         "browser_expect_text",
         "finish_test",
       ]);
+      expect(result.sessionMetrics).toMatchObject({
+        commands: { total: 3 },
+        tokenUsage: { availability: "unavailable", totalTokens: null },
+      });
+      const metrics = summarizeMind2WebMetrics({ results: [result] }, []);
+      expect(metrics).toMatchObject({
+        session_commands: 3,
+        session_commands_succeeded: 3,
+        session_commands_failed: 0,
+        payload_character_unit: "unicode-code-points",
+        payload_byte_encoding: "utf-8",
+        token_usage_tokenizer: null,
+      });
     } finally {
       await server.close();
     }
@@ -91,9 +104,32 @@ describe("Mind2Web benchmark", () => {
     expect(metrics.event_tool_errors).toBe(0);
     expect(metrics.action_tool_errors).toBe(1);
     expect(metrics.tool_errors).toBe(1);
+    expect(metrics.total_input_tokens).toBe(10);
+    expect(metrics.output_tokens).toBe(2);
+    expect(metrics.token_usage_availability).toBe("provider-reported");
     expect(metrics.agent_passed).toBe(1);
     expect(metrics.evidence_passed).toBe(1);
     expect(metrics.passed).toBe(0);
+  });
+
+  test("uses null instead of fabricated token or duration values", () => {
+    const unavailable = summarizeMind2WebMetrics({
+      results: [{ actions: [{ name: "browser_snapshot", output: "abc" }] }],
+    }, []);
+    expect(unavailable.total_input_tokens).toBeNull();
+    expect(unavailable.output_tokens).toBeNull();
+    expect(unavailable.peak_input_tokens).toBeNull();
+    expect(unavailable.duration_ms).toBeNull();
+    expect(unavailable.token_usage_availability).toBe("unavailable");
+    expect(unavailable.token_usage_source).toBeNull();
+
+    const partial = summarizeMind2WebMetrics({ results: [{}] }, [
+      { event_type: "usage", metadata: { input: 12 } },
+    ]);
+    expect(partial.total_input_tokens).toBe(12);
+    expect(partial.output_tokens).toBeNull();
+    expect(partial.token_usage_availability).toBe("partial");
+    expect(partial.token_usage_note).toContain("not converted to tokens");
   });
 
   test("requires configured final-page evidence for a strict pass", () => {

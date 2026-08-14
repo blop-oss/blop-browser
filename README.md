@@ -259,6 +259,21 @@ screenshot or screencast positions. See the
 [action trace contract, redaction limits, and retention rules](docs/action-traces.md)
 before storing or sharing an export.
 
+Export bounded aggregate session metrics as text or JSON. Persistent sessions
+retain the latest aggregate across close and resume until `destroy`:
+
+```bash
+blop-browser --session docs-review metrics
+blop-browser --session docs-review metrics --json
+```
+
+Metrics report command outcomes, snapshots, explicit harness retries,
+approvals, durations, and exact Unicode code-point and UTF-8 payload volume.
+They retain no payload content and report provider token counts as unavailable,
+not as character-based estimates. Read the
+[session metrics contract and retention rules](docs/session-metrics.md) before
+using an aggregate as evidence.
+
 ## Hand control to a person
 
 Pause harness automation when a person needs to handle a challenge or a
@@ -294,9 +309,9 @@ While automation is paused, `status --json` returns the cached pre-pause URL
 and title with `pageState: "cached"`. Page scripts and network activity continue,
 and page JavaScript or an external CDP client can still race the person. Pause
 and resume invalidate all semantic refs, so take a new snapshot before the next
-agent action. If the person closes the active page, open or select another page
-before resuming; otherwise the next tool call returns a recorded structured
-failure.
+agent action. If the person closes the active page, leave another tracked page
+open for the harness to select after resume; if none remains, the next tool call
+returns a recorded structured failure.
 
 Embedding hosts can use the same framework-neutral controller and transition
 callback:
@@ -335,6 +350,18 @@ Semantic snapshots conservatively mask values from password fields and
 credential-like inputs, textareas, and editable regions. This masking is not
 data-loss prevention: screenshots, explicit extraction, arbitrary rendered
 text, browser logs, and network activity can still expose sensitive data.
+
+Run the bundled loopback-only automated ownership proof against the built
+package:
+
+```bash
+bun run demo:takeover
+```
+
+It verifies command draining, concurrent rejection, resume, stale-ref
+invalidation, redaction, and ordered trace transitions. It does not provide or
+test a host UI, notification delivery, human identity, or proof that a person
+acted.
 
 ## Connect to existing Chrome
 
@@ -401,6 +428,7 @@ import { chromium } from "playwright";
 import {
   getBrowserSessionScope,
   createBrowserTools,
+  createSessionMetricsRecorder,
   createTraceRecorder,
   type HarnessAction,
 } from "@blopai/browser-harness";
@@ -415,6 +443,7 @@ const actions: HarnessAction[] = [];
 const traceRecorder = createTraceRecorder({
   identity: { sessionId: "demo", agentId: "accessibility-review" },
 });
+const sessionMetricsRecorder = createSessionMetricsRecorder();
 
 const tools = await createBrowserTools({
   page,
@@ -424,6 +453,7 @@ const tools = await createBrowserTools({
   screenshots: [],
   finishState: { status: null, reason: null },
   traceRecorder,
+  sessionMetricsRecorder,
   safety: {
     mode: "read-only",
   },
@@ -431,7 +461,8 @@ const tools = await createBrowserTools({
 
 const goto = tools.find((tool) => tool.name === "browser_goto")!;
 await goto.execute({ url: "https://example.com" });
-process.stdout.write(traceRecorder.timeline());
+process.stdout.write(`${traceRecorder.timeline()}\n`);
+process.stdout.write(`${sessionMetricsRecorder.json(true)}\n`);
 await browser.close();
 ```
 
@@ -559,6 +590,11 @@ Failed and policy-denied actions remain visible. Read the
 [action trace documentation](docs/action-traces.md) for the complete public
 contract and privacy limitations.
 
+The metrics API returns immutable bounded aggregates without retaining raw
+payload content. It counts only harness-observable retries and leaves provider
+tokens `null`. Read the [session metrics documentation](docs/session-metrics.md)
+for exact byte, character, duration, and resume semantics.
+
 The public API also exports `NativeToolBridge`, `startScreencast`, structured
 target helpers, `BrowserSafetyError`, the safety policy types, and warm Docker
 sessions. `startPlaywrightContainer()` and `startCamoufoxContainer()` keep their
@@ -618,6 +654,11 @@ The benchmark scaffold separates harness behavior from the agent/model that
 drives it. No benchmark result is claimed without a reproducible run record.
 
 Start with the [benchmark plan and result schema](benchmarks/README.md). The
+[local session metrics protocol](benchmarks/session-metrics/README.md) measures
+three paired cold-start and warm-resume workflows against a deterministic
+loopback fixture. Its
+[dated local result](benchmarks/session-metrics/RESULTS.md) publishes all six
+timed phases and limitations without committing the full report. The
 [Mind2Web live benchmark](benchmarks/mind2web/README.md) contains the normalized
 dataset utility, agent-neutral runner, Blop host adapter, deterministic local
 smoke test, and historical experiment ledger.

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { HarnessSessionMetrics } from "../../src/session-metrics.js";
 
 type BenchmarkAction = {
   name?: string;
@@ -10,6 +11,7 @@ type BenchmarkResult = {
   status?: string;
   durationMs?: number;
   actions?: BenchmarkAction[];
+  sessionMetrics?: HarnessSessionMetrics;
 };
 
 type BenchmarkRun = {
@@ -48,22 +50,100 @@ export function summarizeMind2WebMetrics(
   const toolErrors = Math.max(actionToolErrors, eventToolErrors);
   const agentPassed = result?.status === "passed" ? 1 : 0;
   const evidencePassed = benchmarkEvidencePassed(actions, expectations) ? 1 : 0;
+  const inputUsage = exactProviderUsage(usage, "input");
+  const outputUsage = exactProviderUsage(usage, "output");
+  const usageAvailability = usage.length === 0
+    ? "unavailable"
+    : inputUsage !== null && outputUsage !== null
+    ? "provider-reported"
+    : "partial";
+  const sessionMetrics = result?.sessionMetrics;
+  const durationAvailable = typeof result?.durationMs === "number" &&
+    Number.isFinite(result.durationMs) && result.durationMs >= 0;
 
   return {
     passed: agentPassed === 1 && evidencePassed === 1 && toolErrors === 0 ? 1 : 0,
     agent_passed: agentPassed,
     evidence_passed: evidencePassed,
     llm_calls: usage.length,
-    output_tokens: usage.reduce((sum, item) => sum + (item.output ?? 0), 0),
+    output_tokens: outputUsage,
     actions: actions.length,
     snapshots: actions.filter((action) => action.name === "browser_snapshot").length,
-    total_input_tokens: usage.reduce((sum, item) => sum + (item.input ?? 0), 0),
-    peak_input_tokens: Math.max(0, ...usage.map((item) => item.input ?? 0)),
-    duration_ms: result?.durationMs ?? 0,
+    total_input_tokens: inputUsage,
+    peak_input_tokens: exactProviderPeak(usage, "input"),
+    token_usage_availability: usageAvailability,
+    token_usage_source: usage.length ? "host-provider-usage-events" : null,
+    token_usage_tokenizer: null,
+    token_usage_note: usageAvailability === "provider-reported"
+      ? "Exact provider-reported counts; tokenizer and accounting rules are provider-specific."
+      : "Token counts are null because complete provider-reported usage was unavailable; character counts are not converted to tokens.",
+    duration_ms: durationAvailable ? result!.durationMs! : null,
+    duration_source: durationAvailable ? "host-result" : null,
+    session_metrics_saturated: sessionMetrics?.saturated ?? null,
+    session_commands: sessionMetrics?.commands.total ?? null,
+    session_commands_succeeded: sessionMetrics?.commands.succeeded ?? null,
+    session_commands_failed: sessionMetrics?.commands.failed ?? null,
+    session_snapshots: sessionMetrics?.commands.snapshots ?? null,
+    session_unclassified_actions:
+      sessionMetrics?.commands.unclassifiedActions ?? null,
+    session_unclassified_retries:
+      sessionMetrics?.commands.unclassifiedRetries ?? null,
+    command_retries: sessionMetrics?.commands.retries.observed ?? null,
+    command_retry_scope: sessionMetrics?.commands.retries.scope ?? null,
+    approvals_requested: sessionMetrics?.commands.approvals.requested ?? null,
+    approvals_approved: sessionMetrics?.commands.approvals.approved ?? null,
+    approvals_denied: sessionMetrics?.commands.approvals.denied ?? null,
+    command_duration_ms: sessionMetrics?.commands.duration.totalMs ?? null,
+    tool_input_characters: sessionMetrics?.payloads.toolInput.characters ?? null,
+    tool_input_utf8_bytes: sessionMetrics?.payloads.toolInput.utf8Bytes ?? null,
+    tool_input_unmeasured: sessionMetrics?.payloads.toolInput.unmeasured ?? null,
+    tool_output_characters: sessionMetrics?.payloads.toolOutput.characters ?? null,
+    tool_output_utf8_bytes: sessionMetrics?.payloads.toolOutput.utf8Bytes ?? null,
+    tool_output_unmeasured:
+      sessionMetrics?.payloads.toolOutput.unmeasured ?? null,
+    snapshot_output_characters: sessionMetrics?.payloads.snapshotOutput.characters ?? null,
+    snapshot_output_utf8_bytes: sessionMetrics?.payloads.snapshotOutput.utf8Bytes ?? null,
+    snapshot_output_unmeasured:
+      sessionMetrics?.payloads.snapshotOutput.unmeasured ?? null,
+    model_images: sessionMetrics?.payloads.modelImages.count ?? null,
+    model_image_data_url_characters:
+      sessionMetrics?.payloads.modelImages.dataUrlCharacters ?? null,
+    model_image_data_url_utf8_bytes:
+      sessionMetrics?.payloads.modelImages.dataUrlUtf8Bytes ?? null,
+    model_images_unmeasured:
+      sessionMetrics?.payloads.modelImages.unmeasured ?? null,
+    payload_character_unit: sessionMetrics ? "unicode-code-points" : null,
+    payload_byte_encoding: sessionMetrics ? "utf-8" : null,
     action_tool_errors: actionToolErrors,
     event_tool_errors: eventToolErrors,
     tool_errors: toolErrors,
   };
+}
+
+function exactProviderUsage(
+  usage: Array<{ input?: number; output?: number }>,
+  field: "input" | "output",
+) {
+  if (
+    usage.length === 0 ||
+    usage.some((item) =>
+      !Number.isSafeInteger(item[field]) || Number(item[field]) < 0
+    )
+  ) {
+    return null;
+  }
+  const total = usage.reduce((sum, item) => sum + Number(item[field]), 0);
+  return Number.isSafeInteger(total) ? total : null;
+}
+
+function exactProviderPeak(
+  usage: Array<{ input?: number; output?: number }>,
+  field: "input" | "output",
+) {
+  const total = exactProviderUsage(usage, field);
+  return total === null
+    ? null
+    : Math.max(...usage.map((item) => Number(item[field])));
 }
 
 function benchmarkEvidencePassed(

@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import {
   createBrowserTools,
+  createSessionMetricsRecorder,
+  type HarnessSessionMetrics,
   type FinishState,
   type HarnessAction,
   type NativeToolBridge,
@@ -46,6 +48,7 @@ export type Mind2WebTaskResult = {
   reason: string | null;
   actions: HarnessAction[];
   durationMs: number;
+  sessionMetrics: HarnessSessionMetrics;
 };
 
 export function loadMind2WebTasks(
@@ -93,6 +96,7 @@ export async function runMind2WebTask(options: {
   const ownsBrowser = !options.browser;
   const browser = options.browser ?? await chromium.launch({ headless: true });
   let context: BrowserContext | undefined;
+  const sessionMetricsRecorder = createSessionMetricsRecorder();
 
   try {
     context = await browser.newContext({ bypassCSP: true });
@@ -106,6 +110,7 @@ export async function runMind2WebTask(options: {
       actions,
       screenshots: [],
       finishState,
+      sessionMetricsRecorder,
     });
 
     await options.agent.run({
@@ -122,6 +127,7 @@ export async function runMind2WebTask(options: {
       reason: finishState.reason,
       actions,
       durationMs: Date.now() - startedAt,
+      sessionMetrics: sessionMetricsRecorder.snapshot(),
     };
   } finally {
     await context?.close();

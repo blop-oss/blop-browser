@@ -23,8 +23,9 @@ Read these files before changing behavior:
 - [`benchmarks/README.md`](benchmarks/README.md) for benchmark evidence rules.
 
 Do not include credentials, authenticated storage state, downloaded datasets,
-screenshots from private applications, or generated benchmark reports in a
-commit.
+screenshots from private applications, or unreviewed generated benchmark
+reports in a commit. A reviewed bounded result summary must retain every
+repetition and failure and identify its clean source commit.
 
 ## Set up the repository
 
@@ -103,6 +104,12 @@ If your change affects Chromium or Camoufox launch behavior, run the
 installed backends. Keep its generated report out of Git and include the
 protocol hash, browser versions, all failures, and limitations in the pull
 request.
+
+If your change affects CLI startup, resume, metrics, or persistence, run the
+[local session metrics protocol](benchmarks/session-metrics/README.md) from a
+clean implementation commit. Keep the generated JSON private and ignored;
+publish only a bounded summary with all three cold/warm pairs, metric deltas,
+failures, hashes, versions, methodology, and limitations.
 
 The Docker suites skip when Docker isn't available. If your change touches
 `src/session/`, run the relevant container suite with a working Docker daemon

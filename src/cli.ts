@@ -31,12 +31,14 @@ import {
   type HarnessCliRuntime,
 } from "./cli/runtime.js";
 import { readPersistedCliTrace } from "./cli/trace-store.js";
+import { readPersistedCliMetrics } from "./cli/metrics-store.js";
 import { getBrowserSessionScope, type BrowserProfileMode } from "./session/scope.js";
 import {
   createTraceRecorder,
   formatTraceTimeline,
   type HarnessTraceExport,
 } from "./trace-recorder.js";
+import { emptySessionMetrics } from "./session-metrics.js";
 import type { ToolContentBoundary } from "./types.js";
 import { BrowserSafetyError, BrowserToolError } from "./tools/safety.js";
 import { BrowserControlError } from "./session/control.js";
@@ -61,6 +63,7 @@ Usage:
   blop-browser [--session NAME] takeover control REQUEST_ID [--json]
   blop-browser [--session NAME] takeover resume REQUEST_ID LEASE_ID [--outcome completed|cancelled] [--json]
   blop-browser [--session NAME] trace [--json]
+  blop-browser [--session NAME] metrics [--json]
   blop-browser [--session NAME] close [--json]
   blop-browser [--session NAME] destroy [--json]
   blop-browser skill show
@@ -212,6 +215,8 @@ export async function main(argv = process.argv.slice(2)) {
     response = await requestWithoutStarting(parsed.session, "status", parsed.profileMode);
   } else if (parsed.command === "trace") {
     response = await requestWithoutStarting(parsed.session, "export_trace", parsed.profileMode);
+  } else if (parsed.command === "metrics") {
+    response = await requestWithoutStarting(parsed.session, "export_metrics", parsed.profileMode);
   } else if (parsed.command === "close") {
     response = await requestWithoutStarting(parsed.session, "shutdown");
   } else if (parsed.command === "destroy") {
@@ -424,7 +429,7 @@ export function shouldRunFirstConfig(input: {
 }) {
   const { argv, command, configured, json, interactive } = input;
   if (configured || json || !interactive) return false;
-  if (["", "help", "--help", "-h", "config", "install", "skill", "doctor", "status", "trace", "takeover", "close", "destroy", "_daemon"]
+  if (["", "help", "--help", "-h", "config", "install", "skill", "doctor", "status", "trace", "metrics", "takeover", "close", "destroy", "_daemon"]
     .includes(command)) return false;
   return !["--browser", "--cdp-endpoint", "--attach-existing", "--headless", "--headed"]
     .some((option) => argv.includes(option));
@@ -839,6 +844,9 @@ async function requestWithoutStarting(
       : method === "export_trace"
       ? await readPersistedCliTrace(pathsForSession(session).artifacts)
         ?? createTraceRecorder({ identity: { sessionId: session } }).snapshot()
+      : method === "export_metrics"
+      ? await readPersistedCliMetrics(pathsForSession(session).artifacts)
+        ?? emptySessionMetrics()
       : { session, closed: false, active: false });
   }
   return await requestDaemon(endpoint, method);
@@ -917,6 +925,7 @@ async function handleDaemonRequest(
   if (method === "ping") return okResponse(id, { pid: process.pid });
   if (method === "status") return okResponse(id, { active: true, ...await runtime.status() });
   if (method === "export_trace") return okResponse(id, runtime.trace());
+  if (method === "export_metrics") return okResponse(id, runtime.metrics());
   if (method === "list_tools") return okResponse(id, runtime.listTools());
   if (method === "describe_tool") {
     try {
