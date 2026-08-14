@@ -82,6 +82,11 @@ const SESSION_LIFECYCLE_COMMANDS = new Set([
   "browser_session_start",
   "browser_session_close",
   "browser_session_destroy",
+  "browser_control_pause_requested",
+  "browser_control_paused",
+  "browser_control_human_acquired",
+  "browser_control_automation_resumed",
+  "browser_control_closed",
 ]);
 
 const SENSITIVE_KEY_PATTERN = /(?:text|password|passwd|passcode|secret|token|api[_-]?key|authorization|cookie|credential|session|credit|card|cvv|cvc|ssn|email)/i;
@@ -240,7 +245,7 @@ export function createTraceRecorder(options: TraceRecorderOptions = {}): TraceRe
         sequence: nextSequence,
         kind: action.name === "browser_run_steps"
           ? "batch"
-          : action.name.startsWith("browser_session_") ? "lifecycle" : "action",
+          : SESSION_LIFECYCLE_COMMANDS.has(action.name) ? "lifecycle" : "action",
         timestamp: validTimestamp(context.startedAt) ?? validTimestamp(action.timestamp) ?? new Date().toISOString(),
         completedAt: validTimestamp(context.completedAt) ?? validTimestamp(action.timestamp) ?? new Date().toISOString(),
         durationMs: boundedDuration(action.durationMs),

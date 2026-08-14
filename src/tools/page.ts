@@ -43,11 +43,16 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
           ? referenceEntry(context.page, String((input.target as { ref?: unknown }).ref ?? ""))
           : undefined;
         const scope = input.target === undefined ? context.page.locator("body") : locateTarget(context.page, input.target);
+        const sensitiveValues = await readSensitiveFormValues(scope);
         const bodyText = await scope.innerText({ timeout: 5000 }).catch(() => "");
-        const excerpt = bodyText.replace(/\s+/g, " ").trim().slice(0, 4000);
+        const excerpt = redactKnownValues(bodyText, sensitiveValues)
+          .replace(/\s+/g, " ").trim().slice(0, 4000);
         const includeAria = input.includeAria === true || input.maxAriaChars !== undefined;
         const scopedAria = includeAria || input.target !== undefined
-          ? truncateSnapshot(await readAriaSnapshot(scope), clampAriaBudget(input.maxAriaChars))
+          ? truncateSnapshot(
+            redactKnownValues(await readAriaSnapshot(scope), sensitiveValues),
+            clampAriaBudget(input.maxAriaChars),
+          )
           : undefined;
         // Collect interaction refs last: Playwright's aria-ref mapping belongs
         // to the most recent ARIA snapshot. The optional full fallback above
@@ -61,9 +66,18 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
         const focusedElement = pageWithEvaluate.evaluate ? await pageWithEvaluate.evaluate(() => {
           const element = document.activeElement;
           if (!element) return null;
+          const autocomplete = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+            ? element.autocomplete
+            : "";
+          const identity = `${element.getAttribute("name") ?? ""} ${element.id} ${element.getAttribute("aria-label") ?? ""}`;
+          const sensitive = element instanceof HTMLInputElement && element.type === "password"
+            || /(?:current|new)-password/i.test(autocomplete)
+            || /(?:pass(?:word|code)?|secret|token|credential|cvv|cvc|ssn)/i.test(identity);
           return {
             tag: element.tagName.toLowerCase(),
-            text: (element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 200),
+            text: sensitive
+              ? "[REDACTED]"
+              : (element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 200),
             ariaLabel: element.getAttribute("aria-label"),
             role: element.getAttribute("role"),
             id: element.id || null,
@@ -285,4 +299,35 @@ function clampAriaBudget(value: unknown): number {
 function truncateSnapshot(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars)}\n...[ARIA snapshot truncated]`;
+}
+
+async function readSensitiveFormValues(scope: ReturnType<Page["locator"]>) {
+  return await scope.locator("input,textarea,[contenteditable='true']").evaluateAll((elements) =>
+    elements.flatMap((element) => {
+      if (!(element instanceof HTMLElement)) return [];
+      const autocomplete = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+        ? element.autocomplete
+        : "";
+      const labels = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+        ? Array.from(element.labels ?? []).map((label) => label.innerText).join(" ")
+        : "";
+      const identity = `${element.getAttribute("name") ?? ""} ${element.id} ${element.getAttribute("aria-label") ?? ""} ${labels}`;
+      const sensitive = element instanceof HTMLInputElement && element.type === "password"
+        || /(?:current|new)-password/i.test(autocomplete)
+        || /(?:pass(?:word|code)?|secret|token|credential|cvv|cvc|ssn)/i.test(identity);
+      const value = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+        ? element.value
+        : element.isContentEditable ? element.innerText : "";
+      return sensitive && value ? [value.slice(0, 4_000)] : [];
+    }).slice(0, 20),
+  ).catch(() => [] as string[]);
+}
+
+function redactKnownValues(value: string, sensitiveValues: string[]) {
+  if (!value) return value;
+  let redacted = value;
+  for (const sensitive of [...new Set(sensitiveValues)].sort((left, right) => right.length - left.length)) {
+    redacted = redacted.split(sensitive).join("[REDACTED]");
+  }
+  return redacted;
 }

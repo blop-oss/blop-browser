@@ -92,4 +92,17 @@ export {
   type BrowserSessionScope,
 } from "./session/scope.js";
 
+export {
+  BrowserControlError,
+  createBrowserControlSession,
+  type BrowserControlSession,
+  type BrowserControlSessionOptions,
+  type BrowserControlState,
+  type BrowserControlStatus,
+  type BrowserControlTransition,
+  type BrowserHumanControlLease,
+  type BrowserTakeoverOutcome,
+  type BrowserTakeoverReason,
+} from "./session/control.js";
+
 export { locateTarget, locateAllTargets, selectorFor, type BrowserTarget, targetParameterSchema } from "./tools/locators.js";

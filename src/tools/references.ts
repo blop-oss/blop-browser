@@ -136,6 +136,7 @@ export async function collectInteractiveReferences(
 
       const tag = element.tagName.toLowerCase();
       const input = element instanceof HTMLInputElement ? element : null;
+      const textarea = element instanceof HTMLTextAreaElement ? element : null;
       const role = element.getAttribute("role") || (tag === "a" ? "link"
         : tag === "button" || tag === "summary" ? "button"
         : tag === "textarea" ? "textbox"
@@ -180,7 +181,18 @@ export async function collectInteractiveReferences(
         regionElement.getAttribute("role") || regionElement.tagName.toLowerCase(),
         regionElement.getAttribute("aria-label") || "",
       ].filter(Boolean).join(":") : undefined;
-      const value = "value" in element ? String((element as HTMLInputElement).value).slice(0, 160) : undefined;
+      const sensitiveIdentity = /(?:pass(?:word|code)?|secret|token|credential|cvv|cvc|ssn)/i.test(
+        `${input?.name ?? textarea?.name ?? ""} ${element.id} ${element.getAttribute("aria-label") ?? ""} ${labels}`,
+      );
+      const sensitiveInput = input?.type === "password"
+        || /(?:current|new)-password/i.test(input?.autocomplete ?? textarea?.autocomplete ?? "")
+        || sensitiveIdentity;
+      const rawValue = "value" in element
+        ? String((element as HTMLInputElement | HTMLTextAreaElement).value)
+        : element.isContentEditable ? element.innerText : undefined;
+      const value = sensitiveInput && rawValue
+        ? "[REDACTED]"
+        : rawValue?.slice(0, 160);
       const href = element instanceof HTMLAnchorElement ? element.href : undefined;
       const rawHref = element instanceof HTMLAnchorElement ? element.getAttribute("href") || undefined : undefined;
       const actions = input && (role === "textbox" || role === "combobox") || tag === "textarea" || element.isContentEditable
@@ -343,6 +355,17 @@ export function referenceEntry(page: Page, ref: string) {
     ? state.refs.get(ref)
     : undefined;
   return stored;
+}
+
+/**
+ * Human-controlled DOM changes are not observed by the harness navigation
+ * epoch. Explicit ownership transitions therefore invalidate every exposed
+ * semantic reference even when the URL did not change.
+ */
+export function invalidatePageReferences(page: Page) {
+  states.delete(page);
+  const navigationState = navigationStates.get(page);
+  if (navigationState) navigationState.epoch += 1;
 }
 
 export async function describeLocatorBlocker(page: Page, locator: Locator) {

@@ -180,6 +180,8 @@ describe("browser action traces", () => {
       "browser_uncheck", "browser_select_option", "browser_upload_file", "browser_set_viewport",
       "browser_screenshot", "browser_select_page", "browser_close_page", "record_critical_point",
       "finish_test", "browser_session_start", "browser_session_close", "browser_session_destroy",
+      "browser_control_pause_requested", "browser_control_paused",
+      "browser_control_human_acquired", "browser_control_automation_resumed", "browser_control_closed",
     ];
     for (const command of writes) expect(isStateChangingCommand(command)).toBe(true);
     for (const command of ["browser_snapshot", "browser_get_url", "browser_run_steps"]) {

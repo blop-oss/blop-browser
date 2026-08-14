@@ -9,6 +9,7 @@ import type {
   ToolContentBoundary,
 } from "../types.js";
 import type { TraceRecorder } from "../trace-recorder.js";
+import type { BrowserControlSession } from "../session/control.js";
 
 export type NativeModelImage = {
   /** Data URL kept out of the textual tool result and attached to the next
@@ -145,6 +146,8 @@ export type BrowserToolContext = {
   /** Optional bounded action trace sink. The central record path emits every
    * successful and failed tool action to it in completion order. */
   traceRecorder?: TraceRecorder;
+  /** Optional session ownership gate for explicit human takeover. */
+  control?: BrowserControlSession;
   /** Optional host-owned enforcement for browser interactions. */
   safety?: BrowserSafetyPolicy;
   /**

@@ -39,6 +39,7 @@ import {
 } from "./trace-recorder.js";
 import type { ToolContentBoundary } from "./types.js";
 import { BrowserSafetyError, BrowserToolError } from "./tools/safety.js";
+import { BrowserControlError } from "./session/control.js";
 
 const HELP = `Blop Browser — browser infrastructure for coding agents
 
@@ -56,6 +57,9 @@ Usage:
   blop-browser [--session NAME] tools [--json]
   blop-browser [--session NAME] describe TOOL [--json]
   blop-browser [--session NAME] status [--json]
+  blop-browser [--session NAME] takeover request challenge|sensitive-step|other [--message TEXT] [--json]
+  blop-browser [--session NAME] takeover control REQUEST_ID [--json]
+  blop-browser [--session NAME] takeover resume REQUEST_ID LEASE_ID [--outcome completed|cancelled] [--json]
   blop-browser [--session NAME] trace [--json]
   blop-browser [--session NAME] close [--json]
   blop-browser [--session NAME] destroy [--json]
@@ -212,6 +216,8 @@ export async function main(argv = process.argv.slice(2)) {
     response = await requestWithoutStarting(parsed.session, "shutdown");
   } else if (parsed.command === "destroy") {
     response = await destroySessionState(parsed.session);
+  } else if (parsed.command === "takeover") {
+    response = await runTakeoverCommand(parsed);
   } else if (parsed.command === "call") {
     const name = parsed.rest[0];
     if (!name) throw new Error("Usage: blop-browser call TOOL --input JSON");
@@ -236,6 +242,54 @@ export async function main(argv = process.argv.slice(2)) {
   if (parsed.command === "trace" && !parsed.json) printTraceResponse(response);
   else printResponse(response, parsed.json);
   if (!response.ok) process.exitCode = 1;
+}
+
+async function runTakeoverCommand(parsed: ParsedArgs): Promise<RpcResponse> {
+  const operation = parsed.rest[0];
+  const endpoint = await activeDaemon(parsed.session);
+  if (operation === "request") {
+    const reason = parsed.rest[1];
+    if (reason !== "challenge" && reason !== "sensitive-step" && reason !== "other") {
+      throw new Error("Usage: blop-browser takeover request challenge|sensitive-step|other [--message TEXT]");
+    }
+    return await requestDaemon(endpoint, "request_takeover", {
+      reason,
+      ...(optionValue(parsed.rest.slice(2), "--message") !== undefined
+        ? { message: optionValue(parsed.rest.slice(2), "--message") }
+        : {}),
+    });
+  }
+  if (operation === "control") {
+    const requestId = parsed.rest[1];
+    if (!requestId) throw new Error("Usage: blop-browser takeover control REQUEST_ID");
+    return await requestDaemon(endpoint, "take_control", { requestId });
+  }
+  if (operation === "resume") {
+    const requestId = parsed.rest[1];
+    const leaseId = parsed.rest[2];
+    if (!requestId || !leaseId) {
+      throw new Error("Usage: blop-browser takeover resume REQUEST_ID LEASE_ID [--outcome completed|cancelled]");
+    }
+    const outcome = optionValue(parsed.rest.slice(3), "--outcome");
+    if (outcome !== undefined && outcome !== "completed" && outcome !== "cancelled") {
+      throw new Error("--outcome must be completed or cancelled.");
+    }
+    return await requestDaemon(endpoint, "resume_automation", {
+      requestId,
+      leaseId,
+      ...(outcome ? { outcome } : {}),
+    });
+  }
+  throw new Error("Usage: blop-browser takeover request|control|resume ...");
+}
+
+async function activeDaemon(session: string) {
+  const endpoint = await readEndpoint(session);
+  if (!endpoint || !await daemonIsHealthy(endpoint)) {
+    if (endpoint) await removeEndpoint(session);
+    throw new Error("Human takeover requires an active browser session. Start or attach the browser first.");
+  }
+  return endpoint;
 }
 
 function shortcutCall(command: string, args: string[]): { name: string; input: Record<string, unknown> } | null {
@@ -370,7 +424,7 @@ export function shouldRunFirstConfig(input: {
 }) {
   const { argv, command, configured, json, interactive } = input;
   if (configured || json || !interactive) return false;
-  if (["", "help", "--help", "-h", "config", "install", "skill", "doctor", "status", "trace", "close", "destroy", "_daemon"]
+  if (["", "help", "--help", "-h", "config", "install", "skill", "doctor", "status", "trace", "takeover", "close", "destroy", "_daemon"]
     .includes(command)) return false;
   return !["--browser", "--cdp-endpoint", "--attach-existing", "--headless", "--headed"]
     .some((option) => argv.includes(option));
@@ -882,7 +936,7 @@ async function handleDaemonRequest(
     } catch (error) {
       return errorResponse(
         id,
-        "tool_error",
+        error instanceof BrowserControlError ? error.code : "tool_error",
         messageOf(error),
         error instanceof BrowserToolError ? error.contentBoundary : undefined,
         error instanceof BrowserSafetyError ? {
@@ -893,7 +947,45 @@ async function handleDaemonRequest(
           ...(error.phase ? { phase: error.phase } : {}),
           ...(error.origin ? { origin: error.origin } : {}),
         } : undefined,
+        error instanceof BrowserControlError ? controlRpcError(error) : undefined,
       );
+    }
+  }
+  if (method === "request_takeover") {
+    try {
+      const reason = params?.reason;
+      if (reason !== "challenge" && reason !== "sensitive-step" && reason !== "other") {
+        return errorResponse(id, "invalid_input", "Takeover reason must be challenge, sensitive-step, or other.");
+      }
+      const message = params?.message;
+      if (message !== undefined && typeof message !== "string") {
+        return errorResponse(id, "invalid_input", "Takeover message must be a string.");
+      }
+      return okResponse(id, await runtime.requestTakeover({ reason, ...(message ? { message } : {}) }));
+    } catch (error) {
+      return controlErrorResponse(id, error);
+    }
+  }
+  if (method === "take_control") {
+    try {
+      return okResponse(id, await runtime.takeControl(String(params?.requestId ?? "")));
+    } catch (error) {
+      return controlErrorResponse(id, error);
+    }
+  }
+  if (method === "resume_automation") {
+    try {
+      const outcome = params?.outcome;
+      if (outcome !== undefined && outcome !== "completed" && outcome !== "cancelled") {
+        return errorResponse(id, "invalid_input", "Takeover outcome must be completed or cancelled.");
+      }
+      return okResponse(id, await runtime.resumeAutomation({
+        requestId: String(params?.requestId ?? ""),
+        leaseId: String(params?.leaseId ?? ""),
+        ...(outcome ? { outcome } : {}),
+      }));
+    } catch (error) {
+      return controlErrorResponse(id, error);
     }
   }
   if (method === "shutdown") {
@@ -908,6 +1000,26 @@ async function handleDaemonRequest(
     });
   }
   return errorResponse(id, "unknown_method", `Unknown daemon method "${method}".`);
+}
+
+function controlErrorResponse(id: string, error: unknown) {
+  return errorResponse(
+    id,
+    error instanceof BrowserControlError ? error.code : "control_error",
+    messageOf(error),
+    error instanceof BrowserToolError ? error.contentBoundary : undefined,
+    undefined,
+    error instanceof BrowserControlError ? controlRpcError(error) : undefined,
+  );
+}
+
+function controlRpcError(error: BrowserControlError) {
+  return {
+    code: error.code,
+    state: error.state,
+    command: error.command,
+    ...(error.requestId ? { requestId: error.requestId } : {}),
+  } as const;
 }
 
 function numericEnvironment(name: string, fallback: number, minimum: number) {
