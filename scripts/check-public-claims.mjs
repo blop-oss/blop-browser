@@ -40,6 +40,7 @@ const requiredClaims = [
   "BACKEND_SIGNAL_EVIDENCE",
   "BENCHMARK_EVIDENCE",
   "DISTRIBUTION",
+  "AVAILABILITY",
 ];
 
 const surfaceRows = parseTable(
@@ -336,6 +337,7 @@ function validatePublicClaimSurfaces(paths) {
     "docs/action-traces.md",
     "docs/assets/demo/README.md",
     "docs/browser-tool-comparison.md",
+    "docs/capability-availability.md",
     "docs/demo-recording.md",
     "docs/good-first-issues.md",
     "docs/known-limitations.md",

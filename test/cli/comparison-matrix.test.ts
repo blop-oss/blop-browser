@@ -64,11 +64,23 @@ describe("browser-tool comparison evidence", () => {
   test("rejects an invalid parent-relative evidence line range", async () => {
     const { source, options } = await comparisonFixture();
     const broken = source.replace(
-      "../README.md#L37-L48",
+      "../README.md#L43-L54",
       "../README.md#L99999-L100000",
     );
     expect(validateComparisonDocument(broken, options)).toContainEqual(
       expect.stringContaining("local evidence line range is invalid"),
+    );
+  });
+
+  test("does not regress known local-only availability to an unknown", async () => {
+    const { source, options } = await comparisonFixture();
+    const broken = source.replace(
+      "Blop Browser has no hosted free or paid tier",
+      "Blop Browser hosted availability is Unknown / not tested",
+    );
+
+    expect(validateComparisonDocument(broken, options)).toContain(
+      "Local and cloud requirements / Blop Browser: must state that no hosted free or paid tier exists",
     );
   });
 });

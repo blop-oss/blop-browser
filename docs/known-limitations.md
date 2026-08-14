@@ -5,6 +5,19 @@ an agent host controlled Playwright tools, session lifecycle, and browser
 evidence, but it includes no model, planner, or autonomous agent loop. Review
 these boundaries before choosing a browser mode or handling authenticated data.
 
+## Availability and hosting
+
+Blop Browser has no hosted free or paid tier. Its CLI, TypeScript API, browser
+state, and artifacts run in infrastructure you operate or in a browser you
+explicitly attach. The package requires no Blop account, platform key,
+subscription, or payment.
+
+The separate Blop QA product advertised at `blopai.com` is not a hosted tier for
+this package. Its plans and policies do not apply to local Blop Browser storage,
+limits, retention, or support. Review the dated
+[capability availability](capability-availability.md) instead of inferring a
+package entitlement from an organization or pricing link.
+
 ## Host responsibilities
 
 Your host supplies the behavior outside browser infrastructure. This package
@@ -89,9 +102,11 @@ process, container, domain, or network isolation.
 
 Persistent mode retains managed state after close and idle shutdown until you
 run `destroy`. Disposable mode removes its managed profile, downloads, and
-artifacts on close or idle shutdown. Neither mode reverses server-side state or
-deletes data owned by a website. An attached CDP session uses an external
-profile, and Blop Browser does not delete that external profile.
+artifacts on close or idle shutdown. The per-session daemon log remains in the
+runtime directory until `destroy`; disposable close does not remove it. Neither
+mode reverses server-side state or deletes data owned by a website. An attached
+CDP session uses an external profile, and Blop Browser does not delete that
+external profile.
 
 ## Existing Chrome and Camoufox
 

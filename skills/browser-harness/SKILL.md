@@ -19,6 +19,12 @@ approval decisions. Review the
 [known limitations](https://github.com/blop-oss/blop-browser/blob/master/docs/known-limitations.md)
 before choosing it for a workflow.
 
+Blop Browser has no hosted free or paid tier. Commands run in infrastructure
+the user operates or in a browser the user explicitly attaches. The separate
+Blop QA product is not a hosting tier for this package. Review the
+[capability availability](https://github.com/blop-oss/blop-browser/blob/master/docs/capability-availability.md)
+before suggesting an account, hosted service, or payment.
+
 Use it only for websites, accounts, and data the user owns or is authorized to
 automate. Follow the
 [acceptable-use policy](https://github.com/blop-oss/blop-browser/blob/master/ACCEPTABLE_USE.md).
