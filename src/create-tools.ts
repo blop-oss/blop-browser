@@ -60,6 +60,7 @@ export async function createBrowserTools(
   // propagates to all of them on the next call.
   const ref: { page: Page } = { page: options.page };
   let cachedUrl = pageUrl(ref.page);
+  let awaitingPostTakeoverPageReconciliation = false;
   const networkActivity = new WeakMap<Page, NetworkActivity>();
   const activityFor = (page: Page) => {
     let activity = networkActivity.get(page);
@@ -102,8 +103,49 @@ export async function createBrowserTools(
     record: async (name, input, fn): NativeToolResult => {
       const startedAt = performance.now();
       const traceStartedAt = new Date().toISOString();
+      const recordControlFailure = (error: BrowserControlError) => {
+        const timestamp = new Date().toISOString();
+        const action: HarnessAction = {
+          name,
+          input,
+          output: error.message,
+          outputBoundary: error.contentBoundary,
+          metadata: {
+            error: error.message,
+            controlBlocked: true,
+            controlCode: error.code,
+            controlState: error.state,
+            controlCommand: error.command,
+            ...(error.requestId ? { controlRequestId: error.requestId } : {}),
+          },
+          timestamp,
+          durationMs: elapsed(startedAt),
+        };
+        const traceError = recordTrace(options.traceRecorder, action, {
+          startedAt: traceStartedAt,
+          completedAt: timestamp,
+          urlBefore: cachedUrl,
+          urlAfter: cachedUrl,
+          stateChanging: isStateChangingCommand(name),
+        });
+        if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
+        options.actions.push(action);
+        options.onAction?.(action);
+      };
       const executeAdmitted = async () => {
-        reconcileActivePage(ref, options.pages, activityFor, options.setActivePage);
+        try {
+          reconcileActivePage(
+            ref,
+            options.pages,
+            activityFor,
+            options.setActivePage,
+            awaitingPostTakeoverPageReconciliation,
+          );
+          awaitingPostTakeoverPageReconciliation = false;
+        } catch (error) {
+          if (error instanceof BrowserControlError) recordControlFailure(error);
+          throw error;
+        }
         const urlBefore = observePageUrl(ref.page, cachedUrl, (url) => { cachedUrl = url; });
         const navigationCheckpoint = navigationPolicy.checkpoint(ref.page);
         let navigationPolicySettled = false;
@@ -209,8 +251,8 @@ export async function createBrowserTools(
         };
         // Attach a compact JPEG of the resulting page state so the host can show
         // a visual trail of each step. Prefer the live screencast frame already in
-        // memory — writing it costs ~0.1ms and keeps the agent's critical path
-        // free of a ~30-40ms (or worse) blocking page.screenshot(). Only fall back
+        // memory and keep the agent's critical path free of a blocking
+        // page.screenshot(). Only fall back
         // to a direct screenshot when no stream frame exists yet (first action, or
         // a non-chromium browser). Best-effort: the page may be mid-navigation or
         // already closed (e.g. finish_test), so failures are swallowed.
@@ -259,33 +301,7 @@ export async function createBrowserTools(
         });
       } catch (error) {
         if (!(error instanceof BrowserControlError) || admitted) throw error;
-        const timestamp = new Date().toISOString();
-        const action: HarnessAction = {
-          name,
-          input,
-          output: error.message,
-          outputBoundary: error.contentBoundary,
-          metadata: {
-            error: error.message,
-            controlBlocked: true,
-            controlCode: error.code,
-            controlState: error.state,
-            controlCommand: error.command,
-            ...(error.requestId ? { controlRequestId: error.requestId } : {}),
-          },
-          timestamp,
-          durationMs: elapsed(startedAt),
-        };
-        const traceError = recordTrace(options.traceRecorder, action, {
-          startedAt: traceStartedAt,
-          completedAt: timestamp,
-          urlBefore: cachedUrl,
-          urlAfter: cachedUrl,
-          stateChanging: isStateChangingCommand(name),
-        });
-        if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
-        options.actions.push(action);
-        options.onAction?.(action);
+        recordControlFailure(error);
         throw error;
       }
     },
@@ -322,6 +338,9 @@ export async function createBrowserTools(
       const pages = new Set([ref.page, ...(options.pages ?? [])]);
       for (const page of pages) invalidatePageReferences(page);
     }
+    if (transition.type === "automation-resumed") {
+      awaitingPostTakeoverPageReconciliation = true;
+    }
     recordControlTransition(options.traceRecorder, transition, cachedUrl);
   });
 
@@ -354,16 +373,18 @@ function reconcileActivePage(
   pages: Page[] | undefined,
   activityFor: (page: Page) => NetworkActivity,
   notify: ((page: Page) => void) | undefined,
+  afterTakeover: boolean,
 ) {
   if (typeof ref.page.isClosed !== "function" || !ref.page.isClosed()) return;
   const replacement = [...(pages ?? [])].reverse().find((page) =>
     typeof page.isClosed !== "function" || !page.isClosed());
   if (!replacement) {
+    if (!afterTakeover) return;
     throw new BrowserControlError({
-      code: "invalid_control_transition",
+      code: "page_unavailable_after_takeover",
       state: "automation",
       command: "reconcile-page",
-      message: "Human control closed every browser page. Open a page before resuming automation.",
+      message: "Human control closed every browser page. Supply a live page before the next automation command.",
     });
   }
   ref.page = replacement;
@@ -376,19 +397,20 @@ function recordControlTransition(
   transition: BrowserControlTransition,
   cachedUrl: string,
 ) {
-  if (!recorder) return;
+  // browser_session_close already captures terminal teardown; avoid a second
+  // close event in every session that never entered takeover.
+  if (!recorder || transition.type === "closed") return;
   const names = {
     "pause-requested": "browser_control_pause_requested",
     paused: "browser_control_paused",
     "human-control-acquired": "browser_control_human_acquired",
     "automation-resumed": "browser_control_automation_resumed",
-    closed: "browser_control_closed",
   } as const;
   const input = {
     requestId: transition.requestId,
     reason: transition.reason,
     ...(transition.message ? {
-      message: { redacted: true, type: "string", length: transition.message.length },
+      message: { redacted: true, type: "string", length: [...transition.message].length },
     } : {}),
     ...(transition.outcome ? { outcome: transition.outcome } : {}),
     revision: transition.revision,

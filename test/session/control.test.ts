@@ -19,7 +19,7 @@ describe("browser control session", () => {
 
     const pause = control.requestTakeover({
       reason: "challenge",
-      message: ` Solve the challenge\nwithout logging ${"x".repeat(400)} `,
+      message: ` Solve the challenge\nwithout logging ${"😀".repeat(400)} `,
     });
     expect(control.status()).toEqual(expect.objectContaining({
       state: "pausing",
@@ -29,6 +29,12 @@ describe("browser control session", () => {
     }));
     const requestId = control.status().requestId;
     expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
+    await expect(control.requestTakeover({ reason: "other" }))
+      .rejects.toMatchObject({
+        code: "invalid_control_transition",
+        state: "pausing",
+        requestId,
+      });
 
     let blockedOperationRan = false;
     await expect(control.runAutomation("browser_snapshot", async () => {
@@ -71,6 +77,10 @@ describe("browser control session", () => {
       outcome: "completed",
     });
     expect(resumed).toEqual(expect.objectContaining({ state: "automation", revision: 4 }));
+    expect(() => control.resumeAutomation({
+      requestId: requestId!,
+      leaseId: acquired.leaseId,
+    })).toThrow("Automation can only resume while human control owns the session");
     expect(await control.runAutomation("browser_snapshot", async () => "observed")).toBe("observed");
     expect(transitions.map((transition) => transition.type)).toEqual([
       "pause-requested",
@@ -78,7 +88,8 @@ describe("browser control session", () => {
       "human-control-acquired",
       "automation-resumed",
     ]);
-    expect(transitions[0]?.message).toHaveLength(240);
+    expect([...transitions[0]!.message!]).toHaveLength(240);
+    expect(transitions[0]?.message).not.toContain("�");
     expect(transitions[0]?.message).not.toMatch(/[\r\n\t]/);
     expect(Object.isFrozen(transitions[0])).toBe(true);
     expect(Object.isFrozen(control.status())).toBe(true);
@@ -153,13 +164,17 @@ test("BrowserControlError remains a structured harness-authored failure", () => 
   const error = new BrowserControlError({
     code: "automation_paused",
     state: "human-control",
-    command: "browser_click",
-    requestId: "request-id",
+    command: `browser_click ${"command-secret".repeat(20)}`,
+    requestId: `request-id\n${"credential".repeat(30)}`,
+    message: `Paused\n${"private".repeat(100)}`,
   });
   expect(error).toEqual(expect.objectContaining({
     code: "automation_paused",
     state: "human-control",
-    command: "browser_click",
     contentBoundary: { source: "harness", trust: "trusted" },
   }));
+  expect(error.command.length).toBeLessThanOrEqual(128);
+  expect(error.requestId?.length).toBeLessThanOrEqual(128);
+  expect(error.message.length).toBeLessThanOrEqual(240);
+  expect(error.message).not.toMatch(/[\r\n\t]/);
 });

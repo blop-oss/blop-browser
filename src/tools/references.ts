@@ -153,9 +153,10 @@ export async function collectInteractiveReferences(
         : "";
       const labelledBy = (element.getAttribute("aria-labelledby") ?? "").split(/\s+/).filter(Boolean)
         .map((id) => document.getElementById(id)?.textContent?.trim() ?? "").filter(Boolean).join(" ");
-      const name = (element.getAttribute("aria-label") || labelledBy || labels
+      const explicitName = element.getAttribute("aria-label") || labelledBy || labels
         || element.getAttribute("alt") || element.getAttribute("title")
-        || element.getAttribute("placeholder") || element.innerText || "")
+        || element.getAttribute("placeholder") || "";
+      const name = (explicitName || element.innerText || "")
         .replace(/\s+/g, " ").trim().slice(0, 160);
       if (!name && element !== document.activeElement) return [];
 
@@ -182,7 +183,7 @@ export async function collectInteractiveReferences(
         regionElement.getAttribute("aria-label") || "",
       ].filter(Boolean).join(":") : undefined;
       const sensitiveIdentity = /(?:pass(?:word|code)?|secret|token|credential|cvv|cvc|ssn)/i.test(
-        `${input?.name ?? textarea?.name ?? ""} ${element.id} ${element.getAttribute("aria-label") ?? ""} ${labels}`,
+        `${element.getAttribute("name") ?? ""} ${element.id} ${element.getAttribute("aria-label") ?? ""} ${labels}`,
       );
       const sensitiveInput = input?.type === "password"
         || /(?:current|new)-password/i.test(input?.autocomplete ?? textarea?.autocomplete ?? "")
@@ -193,6 +194,9 @@ export async function collectInteractiveReferences(
       const value = sensitiveInput && rawValue
         ? "[REDACTED]"
         : rawValue?.slice(0, 160);
+      const exposedName = sensitiveInput && !explicitName && rawValue
+        ? "[REDACTED]"
+        : name;
       const href = element instanceof HTMLAnchorElement ? element.href : undefined;
       const rawHref = element instanceof HTMLAnchorElement ? element.getAttribute("href") || undefined : undefined;
       const actions = input && (role === "textbox" || role === "combobox") || tag === "textarea" || element.isContentEditable
@@ -213,7 +217,7 @@ export async function collectInteractiveReferences(
         placeholder: element.getAttribute("placeholder") || undefined,
         rawHref,
         role,
-        name,
+        name: exposedName,
         value,
         href,
         region,

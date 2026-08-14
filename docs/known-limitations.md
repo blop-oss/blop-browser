@@ -53,6 +53,34 @@ also do not replace filesystem, user, authorization, or full network policy.
 Read the [security boundaries](../SECURITY.md#security-boundaries) and
 [acceptable-use policy](../ACCEPTABLE_USE.md).
 
+## Human-control handoff
+
+Human takeover is a harness admission lock, not a browser-wide pause. A request
+rejects later harness commands before Playwright access and waits for commands
+already admitted through the same controller. Page scripts, timers, network
+requests, service workers, extensions, downloads, and clients using Playwright
+or CDP outside the harness can continue and can race the person.
+
+Request and lease IDs coordinate concurrent callers. They are not
+authentication, authorization, or proof that a person saw or changed the page.
+Any caller with access to the daemon can invoke the takeover transition
+commands. The package supplies no notification, user interface, identity
+verification, or browser-sharing service. A host must expose the browser to its
+operator and decide when to resume.
+
+The standalone CLI supports takeover only for a visible managed window or a
+configured attached browser. It fails before pausing a managed headless
+session, and it cannot verify that an attached browser is visible or reachable
+by the intended person. Page status is cached while automation is paused.
+Pause and resume invalidate every semantic ref; take a new snapshot before
+acting again. If the person closes every page, the next resumed command fails
+with a structured, recorded error until the host supplies a live page.
+
+Snapshot masking covers password fields and credential-like input, textarea,
+and editable values. It does not inspect arbitrary meaning or provide
+data-loss prevention. Screenshots, explicit extraction, rendered text, logs,
+URLs, and other browser data can still expose secrets.
+
 ## Session storage and cleanup
 
 Distinct managed session names receive separate profile, download, and

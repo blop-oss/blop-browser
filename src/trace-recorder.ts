@@ -86,7 +86,6 @@ const SESSION_LIFECYCLE_COMMANDS = new Set([
   "browser_control_paused",
   "browser_control_human_acquired",
   "browser_control_automation_resumed",
-  "browser_control_closed",
 ]);
 
 const SENSITIVE_KEY_PATTERN = /(?:text|password|passwd|passcode|secret|token|api[_-]?key|authorization|cookie|credential|session|credit|card|cvv|cvc|ssn|email)/i;
@@ -720,7 +719,7 @@ function traceExport(
 }
 
 function redactionSummary(value: unknown) {
-  if (typeof value === "string") return { redacted: true, type: "string", length: value.length };
+  if (typeof value === "string") return { redacted: true, type: "string", length: [...value].length };
   if (Array.isArray(value)) return { redacted: true, type: "array", length: value.length };
   return { redacted: true, type: value === null ? "null" : typeof value };
 }

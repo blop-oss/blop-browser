@@ -8,14 +8,23 @@ describe("human takeover tool boundary", () => {
     const trace = createTraceRecorder();
     const fixture = await setupToolPage("<h1>Challenge</h1>", [], { control, traceRecorder: trace });
     try {
-      const paused = await control.requestTakeover({ reason: "challenge" });
+      const paused = await control.requestTakeover({
+        reason: "challenge",
+        message: `\t${"😀".repeat(300)}\n`,
+      });
       const lease = control.takeControl({ requestId: paused.requestId! });
       const page = fixture.page as typeof fixture.page & Record<string, unknown>;
       const originalUrl = page.url;
       const originalContext = page.context;
+      const originalIsClosed = page.isClosed;
+      const originalTitle = page.title;
+      const originalLocator = page.locator;
       let pageAccesses = 0;
       page.url = (() => { pageAccesses += 1; throw new Error("Page.url must not run"); }) as never;
       page.context = (() => { pageAccesses += 1; throw new Error("Page.context must not run"); }) as never;
+      page.isClosed = (() => { pageAccesses += 1; throw new Error("Page.isClosed must not run"); }) as never;
+      page.title = (() => { pageAccesses += 1; throw new Error("Page.title must not run"); }) as never;
+      page.locator = (() => { pageAccesses += 1; throw new Error("Page.locator must not run"); }) as never;
 
       for (const [name, input] of [
         ["browser_snapshot", {}],
@@ -49,9 +58,18 @@ describe("human takeover tool boundary", () => {
         { command: "browser_click", status: "failed", before: cachedUrl, after: cachedUrl },
         { command: "browser_run_steps", status: "failed", before: cachedUrl, after: cachedUrl },
       ]);
+      expect(trace.snapshot().events.find((event) =>
+        event.command === "browser_control_pause_requested")?.input.message).toEqual({
+        redacted: true,
+        type: "string",
+        length: 240,
+      });
 
       page.url = originalUrl;
       page.context = originalContext;
+      page.isClosed = originalIsClosed;
+      page.title = originalTitle;
+      page.locator = originalLocator;
       control.resumeAutomation({
         requestId: paused.requestId!,
         leaseId: lease.leaseId,
@@ -107,11 +125,13 @@ describe("human takeover tool boundary", () => {
 
   test("masks password-like values from semantic and ARIA observations after human input", async () => {
     const secret = "human-only-password-3491";
+    const longSecret = `${secret}-${"s".repeat(5_000)}-private-tail`;
     const control = createBrowserControlSession();
     const fixture = await setupToolPage(`
       <label>Password <input type="password" autocomplete="current-password" /></label>
       <label>Secret note <textarea name="secret_note"></textarea></label>
       <div contenteditable="true" aria-label="Access token"></div>
+      <div contenteditable="true" name="secret_editor"></div>
       <label>Display name <input value="Ada" /></label>
     `, [], { control });
     try {
@@ -120,6 +140,7 @@ describe("human takeover tool boundary", () => {
       await fixture.page.getByLabel("Password").fill(secret);
       await fixture.page.getByLabel("Secret note").fill(`${secret}-note`);
       await fixture.page.getByLabel("Access token").fill(`${secret}-token`);
+      await fixture.page.locator("[name='secret_editor']").fill(longSecret);
       control.resumeAutomation({ requestId: paused.requestId!, leaseId: lease.leaseId });
 
       const observed = await tool(fixture.tools, "browser_snapshot").execute({
@@ -128,6 +149,14 @@ describe("human takeover tool boundary", () => {
       expect(observed.content).not.toContain(secret);
       expect(observed.content).toContain("[REDACTED]");
       expect(observed.content).toContain("Ada");
+
+      const scoped = await tool(fixture.tools, "browser_snapshot").execute({
+        target: { selector: "[name='secret_editor']" },
+        includeAria: true,
+      });
+      expect(scoped.content).not.toContain(secret);
+      expect(scoped.content).not.toContain("private-tail");
+      expect(scoped.content).toContain("[REDACTED]");
     } finally {
       await fixture.cleanup();
     }
@@ -146,6 +175,37 @@ describe("human takeover tool boundary", () => {
 
       const observed = await tool(fixture.tools, "browser_snapshot").execute({});
       expect(observed.content).toContain("Human replacement page");
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  test("records a bounded failure when human control closes every page", async () => {
+    const control = createBrowserControlSession();
+    const trace = createTraceRecorder();
+    const fixture = await setupToolPage("<h1>Only page</h1>", [], { control, traceRecorder: trace });
+    try {
+      const paused = await control.requestTakeover({ reason: "other" });
+      const lease = control.takeControl({ requestId: paused.requestId! });
+      await fixture.page.close();
+      control.resumeAutomation({ requestId: paused.requestId!, leaseId: lease.leaseId });
+
+      await expect(tool(fixture.tools, "browser_snapshot").execute({}))
+        .rejects.toMatchObject({
+          code: "page_unavailable_after_takeover",
+          command: "reconcile-page",
+        });
+      expect(fixture.actions.at(-1)).toEqual(expect.objectContaining({
+        name: "browser_snapshot",
+        metadata: expect.objectContaining({
+          controlBlocked: true,
+          controlCode: "page_unavailable_after_takeover",
+        }),
+      }));
+      expect(trace.snapshot().events.at(-1)).toEqual(expect.objectContaining({
+        command: "browser_snapshot",
+        status: "failed",
+      }));
     } finally {
       await fixture.cleanup();
     }

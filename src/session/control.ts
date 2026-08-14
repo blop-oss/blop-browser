@@ -3,6 +3,8 @@ import { BrowserToolError } from "../tools/safety.js";
 
 const MAX_TAKEOVER_MESSAGE_LENGTH = 240;
 const MAX_COMMAND_LENGTH = 128;
+const MAX_IDENTIFIER_LENGTH = 128;
+const MAX_ERROR_MESSAGE_LENGTH = 240;
 
 export type BrowserControlState =
   | "automation"
@@ -86,6 +88,7 @@ export class BrowserControlError extends BrowserToolError {
   readonly code:
     | "automation_paused"
     | "invalid_control_transition"
+    | "page_unavailable_after_takeover"
     | "session_closed"
     | "takeover_unavailable";
   readonly state: BrowserControlState;
@@ -96,6 +99,7 @@ export class BrowserControlError extends BrowserToolError {
     code:
       | "automation_paused"
       | "invalid_control_transition"
+      | "page_unavailable_after_takeover"
       | "session_closed"
       | "takeover_unavailable";
     state: BrowserControlState;
@@ -103,15 +107,20 @@ export class BrowserControlError extends BrowserToolError {
     requestId?: string;
     message?: string;
   }) {
-    super(
-      options.message ?? controlErrorMessage(options.code, options.state, options.command),
-      { source: "harness", trust: "trusted" },
-    );
+    const fallbackMessage = controlErrorMessage(options.code, options.state, options.command);
+    super(options.message === undefined
+      ? fallbackMessage
+      : boundedText(options.message, MAX_ERROR_MESSAGE_LENGTH) || fallbackMessage, {
+      source: "harness",
+      trust: "trusted",
+    });
     this.name = "BrowserControlError";
     this.code = options.code;
     this.state = options.state;
     this.command = boundedCommand(options.command);
-    this.requestId = options.requestId;
+    this.requestId = options.requestId === undefined
+      ? undefined
+      : boundedIdentifier(options.requestId);
   }
 }
 
@@ -336,15 +345,19 @@ function takeoverOutcome(value: unknown): BrowserTakeoverOutcome {
 
 function boundedMessage(value: unknown) {
   if (typeof value !== "string") throw new TypeError("Takeover message must be a string.");
-  return [...value]
+  return boundedText(value, MAX_TAKEOVER_MESSAGE_LENGTH);
+}
+
+function boundedText(value: string, maxLength: number) {
+  const normalized = [...value]
     .map((character) => {
       const code = character.codePointAt(0) ?? 0;
       return code <= 0x1f || (code >= 0x7f && code <= 0x9f) ? " " : character;
     })
     .join("")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, MAX_TAKEOVER_MESSAGE_LENGTH);
+    .trim();
+  return [...normalized].slice(0, maxLength).join("");
 }
 
 function boundedCommand(value: unknown) {
@@ -354,6 +367,13 @@ function boundedCommand(value: unknown) {
   return command || "unknown";
 }
 
+function boundedIdentifier(value: unknown) {
+  const identifier = String(value ?? "")
+    .replace(/[^A-Za-z0-9_.:-]/g, "")
+    .slice(0, MAX_IDENTIFIER_LENGTH);
+  return identifier || undefined;
+}
+
 function controlErrorMessage(
   code: BrowserControlError["code"],
   state: BrowserControlState,
@@ -361,6 +381,7 @@ function controlErrorMessage(
 ) {
   if (code === "session_closed") return "Browser control session is closed.";
   if (code === "takeover_unavailable") return "Human takeover is unavailable for this browser session.";
+  if (code === "page_unavailable_after_takeover") return "No browser page is available after human takeover.";
   if (code === "invalid_control_transition") return `Invalid browser control transition from ${state}.`;
   return `Browser automation command ${boundedCommand(command)} is paused while control state is ${state}.`;
 }

@@ -302,32 +302,48 @@ function truncateSnapshot(value: string, maxChars: number): string {
 }
 
 async function readSensitiveFormValues(scope: ReturnType<Page["locator"]>) {
-  return await scope.locator("input,textarea,[contenteditable='true']").evaluateAll((elements) =>
-    elements.flatMap((element) => {
-      if (!(element instanceof HTMLElement)) return [];
-      const autocomplete = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
-        ? element.autocomplete
-        : "";
-      const labels = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
-        ? Array.from(element.labels ?? []).map((label) => label.innerText).join(" ")
-        : "";
-      const identity = `${element.getAttribute("name") ?? ""} ${element.id} ${element.getAttribute("aria-label") ?? ""} ${labels}`;
-      const sensitive = element instanceof HTMLInputElement && element.type === "password"
-        || /(?:current|new)-password/i.test(autocomplete)
-        || /(?:pass(?:word|code)?|secret|token|credential|cvv|cvc|ssn)/i.test(identity);
-      const value = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
-        ? element.value
-        : element.isContentEditable ? element.innerText : "";
-      return sensitive && value ? [value.slice(0, 4_000)] : [];
-    }).slice(0, 20),
-  ).catch(() => [] as string[]);
+  try {
+    return await scope.locator(":scope, input,textarea,[contenteditable='true']").evaluateAll((elements) =>
+      elements.flatMap((element) => {
+        if (!(element instanceof HTMLElement)) return [];
+        const autocomplete = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+          ? element.autocomplete
+          : "";
+        const labels = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+          ? Array.from(element.labels ?? []).map((label) => label.innerText).join(" ")
+          : "";
+        const identity = `${element.getAttribute("name") ?? ""} ${element.id} ${element.getAttribute("aria-label") ?? ""} ${labels}`;
+        const sensitive = element instanceof HTMLInputElement && element.type === "password"
+          || /(?:current|new)-password/i.test(autocomplete)
+          || /(?:pass(?:word|code)?|secret|token|credential|cvv|cvc|ssn)/i.test(identity);
+        const value = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+          ? element.value
+          : element.isContentEditable ? element.innerText : "";
+        return sensitive && value ? [{ prefix: value.slice(0, 4_000), length: value.length }] : [];
+      }).slice(0, 20),
+    );
+  } catch {
+    return [];
+  }
 }
 
-function redactKnownValues(value: string, sensitiveValues: string[]) {
+function redactKnownValues(
+  value: string,
+  sensitiveValues: Array<{ prefix: string; length: number }>,
+) {
   if (!value) return value;
   let redacted = value;
-  for (const sensitive of [...new Set(sensitiveValues)].sort((left, right) => right.length - left.length)) {
-    redacted = redacted.split(sensitive).join("[REDACTED]");
+  const unique = new Map(sensitiveValues.map((sensitive) => [
+    `${sensitive.length}:${sensitive.prefix}`,
+    sensitive,
+  ]));
+  for (const sensitive of [...unique.values()].sort((left, right) =>
+    right.prefix.length - left.prefix.length)) {
+    let start = redacted.indexOf(sensitive.prefix);
+    while (start >= 0) {
+      redacted = `${redacted.slice(0, start)}[REDACTED]${redacted.slice(start + sensitive.length)}`;
+      start = redacted.indexOf(sensitive.prefix, start + "[REDACTED]".length);
+    }
   }
   return redacted;
 }

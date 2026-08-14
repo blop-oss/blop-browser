@@ -434,7 +434,7 @@ async function createRuntimeFromBrowser(
           code: "takeover_unavailable",
           state: control.status().state,
           command: "request-takeover",
-          message: "Human takeover requires a headed managed browser or attached external browser. Restart headed or attach through localhost CDP.",
+          message: "Human takeover requires a headed managed browser or attached external browser. Restart headed or attach a configured browser.",
         });
       }
       const takeoverStatus = await control.requestTakeover(input);

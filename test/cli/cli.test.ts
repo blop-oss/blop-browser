@@ -34,8 +34,7 @@ afterEach(async () => {
     await runCli(["--session", session, "close", "--json"], runtimeDir).catch(() => undefined);
   }
   if (cdpChrome) {
-    cdpChrome.process.kill();
-    await cdpChrome.process.exited;
+    await stopProcess(cdpChrome.process);
   }
   await server?.close();
   if (runtimeDir) await rm(runtimeDir, { recursive: true, force: true });
@@ -1024,6 +1023,33 @@ describe("blop-browser CLI", () => {
       expect(JSON.stringify(trace)).not.toContain(secret);
       expect(JSON.stringify(trace)).not.toContain(privateMessage);
       expect(JSON.stringify(trace)).not.toContain(leaseId);
+
+      const closeRequested = await runCli([
+        "--session", session, "takeover", "request", "other", "--json",
+      ], runtimeDir, environment);
+      const closeRequestId = closeRequested.result?.control.requestId as string;
+      const closeAcquired = await runCli([
+        "--session", session, "takeover", "control", closeRequestId, "--json",
+      ], runtimeDir, environment);
+      await humanPage.close();
+      const closeResumed = await runCli([
+        "--session", session, "takeover", "resume", closeRequestId,
+        closeAcquired.result?.lease.leaseId, "--json",
+      ], runtimeDir, environment);
+      expect(closeResumed.result).toEqual(expect.objectContaining({
+        pageAvailable: false,
+        control: expect.objectContaining({ state: "automation" }),
+      }));
+      const unavailablePage = await runCliResult([
+        "--session", session, "snapshot", "--json",
+      ], runtimeDir, environment);
+      expect(unavailablePage.response.error).toEqual(expect.objectContaining({
+        code: "page_unavailable_after_takeover",
+        control: expect.objectContaining({
+          code: "page_unavailable_after_takeover",
+          command: "reconcile-page",
+        }),
+      }));
     } finally {
       await externalBrowser.close();
     }
@@ -1155,9 +1181,38 @@ async function startCdpChrome(profileDirectory: string) {
     } catch {}
     await Bun.sleep(100);
   }
-  process.kill();
-  await process.exited;
+  await stopProcess(process);
   throw new Error("Chrome CDP endpoint did not become ready.");
+}
+
+async function stopProcess(
+  process: ReturnType<typeof Bun.spawn>,
+  timeoutMs = 2_000,
+) {
+  if (process.exitCode !== null) return;
+  process.kill();
+  if (await processExitedWithin(process, timeoutMs)) return;
+  process.kill(9);
+  if (!await processExitedWithin(process, timeoutMs)) {
+    throw new Error("Browser test process did not exit after SIGKILL.");
+  }
+}
+
+async function processExitedWithin(
+  process: ReturnType<typeof Bun.spawn>,
+  timeoutMs: number,
+) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      process.exited.then(() => true),
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 async function availablePort() {
@@ -1210,11 +1265,15 @@ async function runCliResult(
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
+  const stdoutPromise = new Response(process.stdout).text();
+  const stderrPromise = new Response(process.stderr).text();
+  const exited = await processExitedWithin(process, 20_000);
+  if (!exited) {
+    await stopProcess(process);
+    throw new Error(`CLI process timed out: ${args.join(" ")}`);
+  }
+  const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
+  const exitCode = process.exitCode;
   return {
     stdout,
     stderr,

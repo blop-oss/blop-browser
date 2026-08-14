@@ -50,6 +50,7 @@ export type RpcResponse = {
       code:
         | "automation_paused"
         | "invalid_control_transition"
+        | "page_unavailable_after_takeover"
         | "session_closed"
         | "takeover_unavailable";
       state: "automation" | "pausing" | "paused" | "human-control" | "closed";
