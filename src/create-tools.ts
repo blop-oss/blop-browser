@@ -203,11 +203,10 @@ export async function createBrowserTools(
       };
       // Attach a compact JPEG of the resulting page state so the host can show
       // a visual trail of each step. Prefer the live screencast frame already in
-      // memory — writing it costs ~0.1ms and keeps the agent's critical path
-      // free of a ~30-40ms (or worse) blocking page.screenshot(). Only fall back
-      // to a direct screenshot when no stream frame exists yet (first action, or
-      // a non-chromium browser). Best-effort: the page may be mid-navigation or
-      // already closed (e.g. finish_test), so failures are swallowed.
+      // memory. Fall back to a direct screenshot when no stream frame exists yet
+      // (first action, or a non-chromium browser). Best-effort: the page may be
+      // mid-navigation or already closed (e.g. finish_test), so failures are
+      // swallowed.
       if (options.captureStepScreenshots) {
         const shotPath = join(options.screenshotDir, `step-${options.actions.length + 1}.jpg`);
         const frame = options.liveFrame?.();

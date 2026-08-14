@@ -6,10 +6,14 @@
 
 **Browser infrastructure for coding agents.**
 
-Run persistent, isolated browser sessions through a controlled CLI—using
-headless Chromium, your existing Chrome profile, or Camoufox. Blop Browser is
-for Codex, Claude Code, OpenCode, and custom agent hosts that need browser
-control without adopting another agent framework.
+Run browser sessions through a controlled CLI with headless Chromium, explicit
+existing-Chrome attachment, or optional Camoufox. Blop Browser integrates with
+Codex, Claude Code, OpenCode, and custom agent hosts.
+
+Blop Browser is browser infrastructure, not a complete browser agent. It has no
+model, planner, or autonomous agent loop; your host owns orchestration and
+approval decisions. Review the [known limitations](docs/known-limitations.md)
+before choosing it for a workflow.
 
 Use Blop Browser only on websites, accounts, and data you own or are authorized
 to access. Read the [acceptable-use policy](ACCEPTABLE_USE.md) before setup.
@@ -34,17 +38,18 @@ Blop Browser differs from general-purpose browser automation by combining:
 
 - Controlled, bounded browser tools instead of arbitrary page-script or CDP
   execution.
-- Persistent or disposable isolated sessions selected with `--session`.
+- Persistent or disposable managed storage separated by `--session` name.
 - Existing Chrome and authorized profile reuse over CDP.
 - Optional Camoufox sessions for compatibility testing across browser
   fingerprints.
 - A public TypeScript API for embedding the same tools in your own agent host.
 - Warm Playwright Chromium and Camoufox Docker browser services.
-- An agent-neutral CLI, stable JSON output, and an installable agent skill.
+- An agent-neutral CLI, machine-readable JSON output, and an installable agent
+  skill.
 
-The npm package remains `@blopai/browser-harness`, the executable remains
-`blop-browser`, and existing imports, commands, configuration variables, and
-repository links remain compatible.
+The published npm package is `@blopai/browser-harness`, and its executable is
+`blop-browser`. Current imports, commands, configuration variables, and
+repository links use those compatibility names.
 
 ## Demo
 
@@ -146,7 +151,7 @@ detection:
   installed Chrome version make CDP runs less controlled as comparisons.
 - Use Camoufox only for authorized Firefox and fingerprint-compatibility
   coverage. Its generated fingerprint can vary between otherwise identical
-  launches, and it doesn't guarantee anonymity or avoidance of site controls.
+  launches. This does not establish anonymity or avoidance of site controls.
 
 The [local backend signal protocol](benchmarks/detection/README.md) records
 versions, launch constraints, bounded browser-observable signals, failures, and
@@ -155,8 +160,9 @@ or a bot-protection bypass benchmark.
 
 ## Use the CLI
 
-Use a named session to isolate concurrent agents or workflows. Each command
-targets the same daemon until you close it or its idle timeout expires.
+Use distinct session names to give concurrent agents or workflows separate
+managed browser storage. Each command targets the same named daemon until you
+close it or its idle timeout expires.
 
 ```bash
 blop-browser --session docs-review open https://example.com
@@ -168,7 +174,7 @@ blop-browser --session docs-review close
 
 Managed sessions use a dedicated persistent profile and downloads directory for
 each session name. `close` stops the browser but keeps that state. Inspect the
-complete scope before handling authenticated data:
+reported scope before handling authenticated data:
 
 ```bash
 blop-browser --session checkout status --json
@@ -192,11 +198,11 @@ downloads, artifacts, and daemon metadata, run:
 blop-browser --session checkout destroy
 ```
 
-`destroy` safely closes an active managed session first. For an attached Chrome
-session, it disconnects and removes only Blop Browser's managed artifacts; it
-never deletes the external Chrome profile.
+`destroy` closes an active managed session before deleting its state. For an
+attached Chrome session, it disconnects and removes only Blop Browser's managed
+artifacts; it does not delete the external Chrome profile.
 
-Use `--json` for a stable machine-readable response envelope:
+Use `--json` for a machine-readable response envelope:
 
 ```bash
 blop-browser --session docs-review snapshot --json
@@ -285,8 +291,8 @@ website.
 ## Use Camoufox
 
 Camoufox is an optional Firefox-based browser that changes browser-observable
-fingerprint characteristics. Chromium remains the default and is the better
-choice for deterministic testing of applications you control.
+fingerprint characteristics. Chromium remains the default; use it for
+deterministic testing of applications you control.
 
 ```bash
 blop-browser install camoufox
@@ -297,8 +303,8 @@ blop-browser --session compatibility-test \
 The Camoufox browser binary is a separate third-party download. Review the
 [Camoufox project](https://github.com/daijro/camoufox) before using it in your
 environment. Use it only for authorized compatibility testing. It doesn't grant
-permission to access a site, guarantee anonymity, or guarantee that bot
-protections or other site controls will be avoided. If a site denies access,
+permission to access a site, and it does not establish anonymity or avoidance
+of bot protections and other site controls. If a site denies access,
 stop instead of switching fingerprints to bypass the denial. See the
 [acceptable-use policy](ACCEPTABLE_USE.md).
 
@@ -477,8 +483,8 @@ contract and privacy limitations.
 The public API also exports `NativeToolBridge`, `startScreencast`, structured
 target helpers, `BrowserSafetyError`, the safety policy types, and warm Docker
 sessions. `startPlaywrightContainer()` and `startCamoufoxContainer()` keep their
-server containers running while each caller receives an isolated browser
-connection.
+server containers running while each caller receives a separate browser
+instance. This does not provide operating-system or network isolation.
 
 ## Compare browser interfaces
 
@@ -496,6 +502,10 @@ embedding, remote execution, recordings, safety controls, and cleanup.
 The document records competitor advantages and tradeoffs instead of treating
 the matrix as a ranking. Unknown or untested behavior stays explicit, and every
 nontrivial product cell links to primary evidence.
+
+The [public claims and evidence](docs/public-claims.md) ledger inventories
+release-facing copy and maps each retained material promise to direct evidence
+and a stated boundary.
 
 ## Configuration reference
 

@@ -258,7 +258,7 @@ export async function ensureCamoufoxContainer(
   };
 }
 
-/** Connect a fresh, fingerprinted Camoufox browser through the warm container. */
+/** Connect a fresh Camoufox browser through the warm container. */
 export async function startCamoufoxContainer(
   options: CamoufoxContainerOptions = {},
 ): Promise<CamoufoxContainerSession> {

@@ -1,7 +1,7 @@
 {
   "name": "@blopai/browser-harness",
   "version": "0.1.7",
-  "description": "Blop Browser: browser infrastructure for coding agents with controlled tools, persistent sessions, CDP reuse, and optional Camoufox.",
+  "description": "Browser tools and session infrastructure for agent hosts; no model or agent loop.",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -70,6 +70,7 @@
     "check:links": "node scripts/check-markdown-links.mjs",
     "check:comparison": "node scripts/check-comparison-matrix.mjs",
     "check:positioning": "node scripts/check-positioning-proof.mjs",
+    "check:claims": "node scripts/check-public-claims.mjs",
     "check:acceptable-use": "node scripts/check-acceptable-use.mjs",
     "check:security-policy": "node scripts/check-security-policy.mjs",
     "lint": "oxlint src test benchmarks/mind2web benchmarks/detection scripts --deny-warnings",

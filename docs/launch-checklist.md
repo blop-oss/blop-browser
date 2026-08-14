@@ -81,6 +81,10 @@ one has been recorded and reviewed. Launch material must follow the
 don't substitute authenticated accounts, third-party targets, access controls,
 or consequential actions.
 
+The [known limitations](known-limitations.md) must remain visible before the
+README quickstart. The [public claims ledger](public-claims.md) maps each
+material promise to direct evidence and runs as a CI gate.
+
 - [ ] Record the demo with [`demo-recording.md`](demo-recording.md).
 - [ ] Confirm the recording uses
       [`authorized-fixture.html`](assets/demo/authorized-fixture.html) and no
@@ -99,6 +103,7 @@ Run the same checks as CI against the release commit and verify the installed
 package outside the checkout before announcing it.
 
 - [ ] Run the complete verification sequence in `CONTRIBUTING.md`.
+- [ ] Run `bun run check:claims` and review every retained claim boundary.
 - [ ] Install the packed tarball in a temporary directory and run the README
       quickstart with a local fixture.
 - [ ] Confirm the npm page shows the Blop Browser description, README, license,

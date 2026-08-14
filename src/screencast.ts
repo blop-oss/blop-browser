@@ -34,11 +34,9 @@ export type Screencast = {
  * Stream the page as a live JPEG screencast over the Chrome DevTools Protocol
  * instead of taking a blocking `page.screenshot()` after every action.
  *
- * The browser pushes a frame whenever the page repaints, so the host always has
- * the latest view — during navigation, while the agent thinks, and between
- * tool calls — without any per-action capture cost. Each tool call can attach
- * the in-memory latest frame essentially for free (~0.1ms) rather than paying
- * ~30-40ms (or far more on heavy pages) for a synchronous screenshot.
+ * The browser pushes a frame when the page repaints. The host can retain the
+ * latest received view during navigation and between tool calls, then reuse
+ * that in-memory frame without requesting a per-action screenshot.
  *
  * CDP screencast is Chromium-only; returns null for firefox/webkit or if the
  * CDP session cannot be established, so callers can fall back gracefully.

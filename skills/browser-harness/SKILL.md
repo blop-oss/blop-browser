@@ -1,6 +1,6 @@
 ---
 name: browser-harness
-description: Controls isolated persistent or disposable Blop Browser sessions through the blop-browser CLI for UI verification, interaction, extraction, and screenshots. Use when a task requires a real browser, rendered page state, authenticated interaction, or deterministic web-app evidence.
+description: Controls persistent or disposable Blop Browser sessions with separate managed storage through the blop-browser CLI for UI verification, interaction, extraction, assertions, and screenshots. Use when a task requires a real browser or rendered page state.
 license: MIT
 compatibility: Requires the blop-browser executable and a local Chrome, Chromium, Playwright, Chrome CDP endpoint, or optional Camoufox browser. Camoufox requires Node.js 22 or newer.
 metadata:
@@ -12,6 +12,12 @@ metadata:
 Use `blop-browser` through the shell. The CLI starts a local daemon on the
 first tool call and keeps the same browser, tabs, action trail, and semantic
 references across later invocations.
+
+Blop Browser is browser infrastructure, not a complete browser agent. It has no
+model, planner, or autonomous agent loop; the host owns orchestration and
+approval decisions. Review the
+[known limitations](https://github.com/blop-oss/blop-browser/blob/master/docs/known-limitations.md)
+before choosing it for a workflow.
 
 Use it only for websites, accounts, and data the user owns or is authorized to
 automate. Follow the
@@ -46,10 +52,10 @@ blop-browser call browser_snapshot --input '{}'
 blop-browser call browser_click --input '{"target":{"ref":"e1"}}'
 ```
 
-Use `--json` when another program needs a stable machine-readable envelope.
-Use `--session NAME` on every command when work must be isolated from the
-default session. Every managed session uses a dedicated profile; distinct
-session names never share browser storage by default.
+Use `--json` when another program needs a machine-readable envelope. Use
+`--session NAME` on every command when work needs separate managed browser
+storage from the default session. Every managed session uses a dedicated
+profile; distinct session names receive separate browser storage by default.
 
 ## Agent-first setup
 
@@ -137,8 +143,8 @@ blop-browser config --mode camoufox-headless
 Use Chromium by default. Camoufox is an optional third-party Firefox
 distribution that changes browser-observable fingerprint characteristics. Use
 it for authorized compatibility testing, not to defeat a site's access
-controls. It doesn't grant permission, guarantee anonymity, or guarantee that
-bot protection will be avoided. If a site presents a CAPTCHA, rate limit, or
+controls. It doesn't grant permission and does not establish anonymity or
+avoidance of bot protection. If a site presents a CAPTCHA, rate limit, or
 access denial, stop instead of switching browsers, fingerprints, accounts, or
 network routes to bypass it.
 

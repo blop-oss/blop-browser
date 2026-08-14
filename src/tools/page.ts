@@ -148,7 +148,7 @@ export function createPageTools(context: BrowserToolContext): NativeToolBridge[]
     },
     {
       name: "browser_screenshot",
-      description: "Capture an evidence screenshot and return its local path. Omit target for reliable page-level evidence. Use a target only when it is current on the present page; a ref clicked before navigation is stale.",
+      description: "Capture an evidence screenshot and return its local path. Omit target for page-level evidence. Use a target only when it is current on the present page; a ref clicked before navigation is stale.",
       parameters: {
         type: "object",
         properties: {
