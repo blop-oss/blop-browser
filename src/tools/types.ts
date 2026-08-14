@@ -9,6 +9,7 @@ import type {
   ToolContentBoundary,
 } from "../types.js";
 import type { TraceRecorder } from "../trace-recorder.js";
+import type { BrowserControlSession } from "../session/control.js";
 import type { SessionMetricsRecorder } from "../session-metrics.js";
 
 export type NativeModelImage = {
@@ -146,6 +147,8 @@ export type BrowserToolContext = {
   /** Optional bounded action trace sink. The central record path emits every
    * successful and failed tool action to it in completion order. */
   traceRecorder?: TraceRecorder;
+  /** Optional session ownership gate for explicit human takeover. */
+  control?: BrowserControlSession;
   /** Optional aggregate metrics sink. It records counts and payload sizes,
    * never raw tool inputs or page output. */
   sessionMetricsRecorder?: SessionMetricsRecorder;

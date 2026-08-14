@@ -121,6 +121,8 @@ Keep these boundaries in mind:
   authenticated sessions and tabs.
 - Browser pages remain untrusted input. Page content can attempt prompt
   injection or trigger downloads and navigation.
+- A human-control handoff stops new harness commands, not page scripts,
+  networking, browser extensions, page JavaScript, or external CDP clients.
 - Docker browser services isolate browser processes from the caller, but their
   network, mounted volumes, Docker socket access, and host configuration define
   the effective boundary.
@@ -192,6 +194,38 @@ harness state by name, not by domain; use the TypeScript policy where its
 top-level scope is sufficient, and enforce full network boundaries outside
 this package. No browser-tool contract can make an everyday authenticated
 profile safe for arbitrary hostile pages.
+
+## Human-control handoff
+
+The framework-neutral `BrowserControlSession` serializes harness ownership. A
+takeover request closes automation admission synchronously, waits for commands
+that were already admitted, and then enters `paused`. Acquiring control and
+resuming automation require the matching request and lease IDs. New harness
+commands rejected in `pausing`, `paused`, or `human-control` are recorded from
+cached pre-pause state without querying Playwright.
+
+The lock applies only at the harness command-admission boundary. It does not
+pause page scripts, timers, network requests, service workers, extensions, or
+downloads. Page JavaScript and clients that use Playwright or CDP outside this
+harness can continue to change the browser and can race a person. Request and
+lease IDs are concurrency tokens, not credentials, authentication,
+authorization, or proof that a person acted. Any caller with access to the CLI
+daemon can request, acquire, or resume control.
+
+The CLI reports either a visible managed window or the configured attached
+browser as the access path. It rejects takeover in a standalone managed
+headless session before pausing. It cannot verify that an attached browser is
+visible or reachable by the intended person. An embedding host owns browser
+exposure, user notification, identity checks, and every takeover interface; the
+package provides no hosted UI or notification service.
+
+Pause and resume invalidate semantic element refs because a person can change
+the DOM. Status uses the cached pre-pause URL and title while human control owns
+the session. Default and ARIA snapshots mask values from password fields and
+credential-like inputs, textareas, and editable regions. This conservative
+masking is not data-loss prevention. Explicit extraction, screenshots,
+arbitrary rendered text, logs, URLs, and browser or network data can still
+contain credentials or personal data.
 
 ## Trace privacy and retention
 

@@ -48,6 +48,14 @@ const policyRequirements = [
     "Host and model-provider flows",
     "must explain host and model-provider transmission",
   ],
+  [
+    "The host owns the browser-access UI, operator notification, identity checks",
+    "must assign takeover UI, notification, identity, and coordination-data ownership",
+  ],
+  [
+    "it does not record the person's keystrokes or direct browser actions",
+    "must distinguish ownership traces from direct human browser activity",
+  ],
   ["blop-browser data list --json", "must document retained-data listing"],
   ["blop-browser data delete SESSION", "must document retained-data deletion"],
   [
@@ -77,6 +85,7 @@ const requiredFlows = [
   "TARGET_NETWORK",
   "CDP_TRANSPORT",
   "HOST_OUTPUT",
+  "HUMAN_CONTROL",
   "LOCAL_RECORDING",
   "SCREENCAST_CALLBACK",
   "CONTAINER_TRANSPORT",
@@ -205,6 +214,7 @@ function validateReviewedSourceSinks(paths) {
     ["src/session/playwright-container.ts", "internetEgressProbe.enabled"],
     ["src/session/camoufox-container.ts", "internetEgressProbe.enabled"],
     ["src/session/bun-ws-compat.ts", "new BunWs(url"],
+    ["src/session/control.ts", "createBrowserControlSession"],
     ["src/cli/data-store.ts", "MAX_LISTED_RUNTIME_ENTRIES"],
   ];
   for (const [file, text] of exactEvidence) {

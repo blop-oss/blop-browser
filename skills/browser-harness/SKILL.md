@@ -21,6 +21,12 @@ and
 [privacy and data flows](https://github.com/blop-oss/blop-browser/blob/master/PRIVACY.md)
 before choosing it for a workflow.
 
+Blop Browser has no hosted free or paid tier. Commands run in infrastructure
+the user operates or in a browser the user explicitly attaches. The separate
+Blop QA product is not a hosting tier for this package. Review the
+[capability availability](https://github.com/blop-oss/blop-browser/blob/master/docs/capability-availability.md)
+before suggesting an account, hosted service, or payment.
+
 Use it only for websites, accounts, and data the user owns or is authorized to
 automate. Follow the
 [acceptable-use policy](https://github.com/blop-oss/blop-browser/blob/master/ACCEPTABLE_USE.md).
@@ -217,6 +223,34 @@ block all new pages, and don't filter subresources or provide network
 isolation. Start a standalone CLI session with `BLOP_BROWSER_READ_ONLY=1` to
 block interactions. The CLI does not expose the other session-policy controls
 or supply a human approval UI automatically.
+
+## Human takeover
+
+Use takeover only when an active headed managed window or an attached browser
+is actually available to the person. A managed headless session rejects the
+request before pausing. The CLI reports the configured access path, but it
+cannot verify that an attached browser is visible or reachable.
+
+```bash
+blop-browser --session research takeover request challenge \
+  --message "Complete the visible challenge." --json
+blop-browser --session research takeover control REQUEST_ID --json
+# Wait for the person to finish in the reported browser.
+blop-browser --session research takeover resume REQUEST_ID LEASE_ID \
+  --outcome completed --json
+```
+
+The host owns browser exposure, notification, and identity checks. Request and
+lease IDs coordinate callers; they do not authenticate a person or prove that
+one acted. While paused, new harness commands fail before Playwright access,
+but page scripts, networking, and external CDP clients continue and can race
+the person. Pause and resume invalidate semantic refs, so take a new snapshot
+before acting. Never put a lease in logs or trace annotations.
+
+Default snapshots mask values from password fields and credential-like
+controls. This masking is not data-loss prevention. Screenshots, explicit
+extraction, arbitrary rendered text, logs, and URLs can still reveal sensitive
+data. Review the trace and page evidence before sharing it.
 
 ## Session lifecycle
 

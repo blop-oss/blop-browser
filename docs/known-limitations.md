@@ -7,6 +7,19 @@ these boundaries before choosing a browser mode or handling authenticated data.
 Read the [privacy and data-flow contract](../PRIVACY.md) for the explicit local,
 remote, recording, and deletion paths.
 
+## Availability and hosting
+
+Blop Browser has no hosted free or paid tier. Its CLI, TypeScript API, browser
+state, and artifacts run in infrastructure you operate or in a browser you
+explicitly attach. The package requires no Blop account, platform key,
+subscription, or payment.
+
+The separate Blop QA product advertised at `blopai.com` is not a hosted tier for
+this package. Its plans and policies do not apply to local Blop Browser storage,
+limits, retention, or support. Review the dated
+[capability availability](capability-availability.md) instead of inferring a
+package entitlement from an organization or pricing link.
+
 ## Host responsibilities
 
 Your host supplies the behavior outside browser infrastructure. This package
@@ -55,6 +68,34 @@ also do not replace filesystem, user, authorization, or full network policy.
 Read the [security boundaries](../SECURITY.md#security-boundaries) and
 [acceptable-use policy](../ACCEPTABLE_USE.md).
 
+## Human-control handoff
+
+Human takeover is a harness admission lock, not a browser-wide pause. A request
+rejects later harness commands before Playwright access and waits for commands
+already admitted through the same controller. Page scripts, timers, network
+requests, service workers, extensions, downloads, and clients using Playwright
+or CDP outside the harness can continue and can race the person.
+
+Request and lease IDs coordinate concurrent callers. They are not
+authentication, authorization, or proof that a person saw or changed the page.
+Any caller with access to the daemon can invoke the takeover transition
+commands. The package supplies no notification, user interface, identity
+verification, or browser-sharing service. A host must expose the browser to its
+operator and decide when to resume.
+
+The standalone CLI supports takeover only for a visible managed window or a
+configured attached browser. It fails before pausing a managed headless
+session, and it cannot verify that an attached browser is visible or reachable
+by the intended person. Page status is cached while automation is paused.
+Pause and resume invalidate every semantic ref; take a new snapshot before
+acting again. If the person closes every page, the next resumed command fails
+with a structured, recorded error until the host supplies a live page.
+
+Snapshot masking covers password fields and credential-like input, textarea,
+and editable values. It does not inspect arbitrary meaning or provide
+data-loss prevention. Screenshots, explicit extraction, rendered text, logs,
+URLs, and other browser data can still expose secrets.
+
 ## Session storage and cleanup
 
 Distinct managed session names receive separate profile, download, and
@@ -70,6 +111,9 @@ deletes data owned by a website. An attached CDP session uses an external
 profile, and Blop Browser does not delete that external profile. Global
 configuration, browser caches, Docker resources, backups, and host/provider
 records also remain outside session deletion.
+If daemon shutdown cannot be confirmed within the bounded cleanup timeout,
+`close`, `destroy`, or `data delete` reports `cleanup_timeout` and preserves the
+relevant managed paths instead of claiming deletion.
 
 ## Existing Chrome and Camoufox
 

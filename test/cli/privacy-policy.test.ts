@@ -61,6 +61,19 @@ describe("privacy data-flow policy", () => {
     expect(result.stderr).toContain("unreviewed network-bearing signature");
   });
 
+  test("rejects a missing human-control recording boundary", async () => {
+    const policy = await mutatedPolicy((source) =>
+      source.replace(
+        /it does not record the person's keystrokes or direct\s+browser actions/,
+        "it records the handoff",
+      )
+    );
+    const result = await runChecker("--policy", policy);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("direct human browser activity");
+  });
+
   test("bounds proof startup failures without echoing unexpected input", async () => {
     const secret = `https://user:password@example.invalid/private?token=${"x".repeat(16_384)}`;
     const process = Bun.spawn([

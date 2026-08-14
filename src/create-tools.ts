@@ -35,6 +35,8 @@ import {
   installNavigationPolicyGuard,
   type NavigationPolicyGuard,
 } from "./tools/navigation-policy.js";
+import { invalidatePageReferences } from "./tools/references.js";
+import { BrowserControlError, type BrowserControlTransition } from "./session/control.js";
 
 const OUTCOME_TOOLS = new Set([
   "browser_goto", "browser_go_back", "browser_go_forward", "browser_reload",
@@ -58,6 +60,8 @@ export async function createBrowserTools(
   // every tool reads `context.page` at execute time, so mutating `ref.page`
   // propagates to all of them on the next call.
   const ref: { page: Page } = { page: options.page };
+  let cachedUrl = pageUrl(ref.page);
+  let awaitingPostTakeoverPageReconciliation = false;
   const networkActivity = new WeakMap<Page, NetworkActivity>();
   const activityFor = (page: Page) => {
     let activity = networkActivity.get(page);
@@ -100,16 +104,6 @@ export async function createBrowserTools(
     record: async (name, input, fn): NativeToolResult => {
       const startedAt = performance.now();
       const traceStartedAt = new Date().toISOString();
-      const urlBefore = pageUrl(ref.page);
-      const navigationCheckpoint = navigationPolicy.checkpoint(ref.page);
-      let navigationPolicySettled = false;
-      const settleNavigationPolicy = () => {
-        navigationPolicySettled = true;
-        return navigationPolicy.settleViolation(navigationCheckpoint, name);
-      };
-      let before = null;
-      let approval: TraceApproval | undefined;
-      let result: Awaited<NativeToolResult>;
       let metricsRecordingError: string | undefined;
       const retry = () => {
         metricsRecordingError ??= recordMetricsRetry(
@@ -117,59 +111,21 @@ export async function createBrowserTools(
           name,
         );
       };
-      try {
-        const safetyDecision = await enforceBrowserSafety({
-          page: ref.page,
-          testId: options.testId,
-          safety: sessionPolicy,
-          baseUrl: options.baseUrl,
-          toolName: name,
-          input,
-        });
-        if (safetyDecision) {
-          approval = {
-            status: "approved",
-            policy: "approval-policy",
-            category: safetyDecision.category,
-          };
-        }
-        before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
-        const payload = await fn({ retry });
-        const navigationViolation = settleNavigationPolicy();
-        if (navigationViolation) throw navigationViolation;
-        result = {
-          content: payload.content,
-          ...(payload.metadata ? { metadata: payload.metadata } : {}),
-          ...(payload.modelImages ? {
-            modelImages: browserModelImages(ref.page, payload.modelImages),
-          } : {}),
-          contentBoundary: defaultToolContentBoundary(name, ref.page),
-        };
-      } catch (error) {
-        const navigationViolation = navigationPolicySettled
-          ? undefined
-          : settleNavigationPolicy();
-        const toolError = browserToolError(navigationViolation ?? error, ref.page);
-        const message = toolError.message;
+      const recordControlFailure = (error: BrowserControlError) => {
         const timestamp = new Date().toISOString();
         const action: HarnessAction = {
           name,
           input,
-          output: message,
-          outputBoundary: toolError.contentBoundary,
+          output: error.message,
+          outputBoundary: error.contentBoundary,
           metadata: {
-            error: message,
+            error: error.message,
+            controlBlocked: true,
+            controlCode: error.code,
+            controlState: error.state,
+            controlCommand: error.command,
+            ...(error.requestId ? { controlRequestId: error.requestId } : {}),
             ...(metricsRecordingError ? { metricsRecordingError } : {}),
-            ...(approval ? { approval } : {}),
-            ...(toolError instanceof BrowserSafetyError ? {
-              policyBlocked: true,
-              policyCode: toolError.code,
-              policyTool: toolError.toolName,
-              policyCategory: toolError.category,
-              policyDecision: toolError.decision,
-              ...(toolError.phase ? { policyPhase: toolError.phase } : {}),
-              ...(toolError.origin ? { policyOrigin: toolError.origin } : {}),
-            } : {}),
           },
           timestamp,
           durationMs: elapsed(startedAt),
@@ -177,11 +133,9 @@ export async function createBrowserTools(
         const traceError = recordTrace(options.traceRecorder, action, {
           startedAt: traceStartedAt,
           completedAt: timestamp,
-          urlBefore,
-          urlAfter: pageUrl(ref.page),
+          urlBefore: cachedUrl,
+          urlAfter: cachedUrl,
           stateChanging: isStateChangingCommand(name),
-          approval,
-          media: traceMedia(undefined, options.liveFrame?.()),
         });
         if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
         const metricsError = recordSessionMetrics(
@@ -193,79 +147,197 @@ export async function createBrowserTools(
         }
         options.actions.push(action);
         options.onAction?.(action);
-        throw toolError;
-      }
-      if (before) {
-        const outcome = describeActionOutcome(before, await captureActionState(ref.page));
-        if (outcome) {
-          result = {
-            ...result,
-            content: `${result.content}\n\nOutcome: ${outcome}`,
-            contentBoundary: mixedContentBoundary(ref.page),
-            metadata: { ...result.metadata, outcome },
-          };
-        }
-      }
-      const action: HarnessAction = {
-        name,
-        input,
-        output: result.content,
-        outputBoundary: result.contentBoundary,
-        metadata: {
-          ...result.metadata,
-          ...(approval ? { approval } : {}),
-          ...(metricsRecordingError ? { metricsRecordingError } : {}),
-        },
-        timestamp: new Date().toISOString(),
-        durationMs: elapsed(startedAt),
       };
-      // Attach a compact JPEG of the resulting page state so the host can show
-      // a visual trail of each step. Prefer the live screencast frame already in
-      // memory. Fall back to a direct screenshot when no stream frame exists yet
-      // (first action, or a non-chromium browser). Best-effort: the page may be
-      // mid-navigation or already closed (e.g. finish_test), so failures are
-      // swallowed.
-      if (options.captureStepScreenshots) {
-        const shotPath = join(options.screenshotDir, `step-${options.actions.length + 1}.jpg`);
-        const frame = options.liveFrame?.();
+      const executeAdmitted = async () => {
         try {
-          if (frame) {
-            await writeFile(shotPath, frame.data);
-          } else {
-            await ref.page.screenshot({ path: shotPath, type: "jpeg", quality: 45 });
-          }
-          action.metadata = {
-            ...action.metadata,
-            stepScreenshotPath: shotPath,
-            traceScreenshotIndex: options.actions.length + 1,
-            ...(typeof frame?.seq === "number" ? { screencastFrameSequence: frame.seq } : {}),
-            ...(typeof frame?.timestamp === "number" ? { screencastFrameTimestamp: frame.timestamp } : {}),
-          };
-        } catch {
-          // Page not screenshot-able right now; skip the visual for this step.
+          reconcileActivePage(
+            ref,
+            options.pages,
+            activityFor,
+            options.setActivePage,
+            awaitingPostTakeoverPageReconciliation,
+          );
+          awaitingPostTakeoverPageReconciliation = false;
+        } catch (error) {
+          if (error instanceof BrowserControlError) recordControlFailure(error);
+          throw error;
         }
+        const urlBefore = observePageUrl(ref.page, cachedUrl, (url) => { cachedUrl = url; });
+        const navigationCheckpoint = navigationPolicy.checkpoint(ref.page);
+        let navigationPolicySettled = false;
+        const settleNavigationPolicy = () => {
+          navigationPolicySettled = true;
+          return navigationPolicy.settleViolation(navigationCheckpoint, name);
+        };
+        let before = null;
+        let approval: TraceApproval | undefined;
+        let result: Awaited<NativeToolResult>;
+        try {
+          const safetyDecision = await enforceBrowserSafety({
+            page: ref.page,
+            testId: options.testId,
+            safety: sessionPolicy,
+            baseUrl: options.baseUrl,
+            toolName: name,
+            input,
+          });
+          if (safetyDecision) {
+            approval = {
+              status: "approved",
+              policy: "approval-policy",
+              category: safetyDecision.category,
+            };
+          }
+          before = OUTCOME_TOOLS.has(name) ? await captureActionState(ref.page) : null;
+          const payload = await fn({ retry });
+          const navigationViolation = settleNavigationPolicy();
+          if (navigationViolation) throw navigationViolation;
+          result = {
+            content: payload.content,
+            ...(payload.metadata ? { metadata: payload.metadata } : {}),
+            ...(payload.modelImages ? {
+              modelImages: browserModelImages(ref.page, payload.modelImages),
+            } : {}),
+            contentBoundary: defaultToolContentBoundary(name, ref.page),
+          };
+        } catch (error) {
+          const navigationViolation = navigationPolicySettled
+            ? undefined
+            : settleNavigationPolicy();
+          const toolError = browserToolError(navigationViolation ?? error, ref.page);
+          const message = toolError.message;
+          const timestamp = new Date().toISOString();
+          const urlAfter = observePageUrl(ref.page, cachedUrl, (url) => { cachedUrl = url; });
+          const action: HarnessAction = {
+            name,
+            input,
+            output: message,
+            outputBoundary: toolError.contentBoundary,
+            metadata: {
+              error: message,
+              ...(metricsRecordingError ? { metricsRecordingError } : {}),
+              ...(approval ? { approval } : {}),
+              ...(toolError instanceof BrowserSafetyError ? {
+                policyBlocked: true,
+                policyCode: toolError.code,
+                policyTool: toolError.toolName,
+                policyCategory: toolError.category,
+                policyDecision: toolError.decision,
+                ...(toolError.phase ? { policyPhase: toolError.phase } : {}),
+                ...(toolError.origin ? { policyOrigin: toolError.origin } : {}),
+              } : {}),
+            },
+            timestamp,
+            durationMs: elapsed(startedAt),
+          };
+          const traceError = recordTrace(options.traceRecorder, action, {
+            startedAt: traceStartedAt,
+            completedAt: timestamp,
+            urlBefore,
+            urlAfter,
+            stateChanging: isStateChangingCommand(name),
+            approval,
+            media: traceMedia(undefined, options.liveFrame?.()),
+          });
+          if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
+          const metricsError = recordSessionMetrics(
+            options.sessionMetricsRecorder,
+            action,
+          );
+          if (metricsError) {
+            action.metadata = { ...action.metadata, metricsRecordingError: metricsError };
+          }
+          options.actions.push(action);
+          options.onAction?.(action);
+          throw toolError;
+        }
+        if (before) {
+          const outcome = describeActionOutcome(before, await captureActionState(ref.page));
+          if (outcome) {
+            result = {
+              ...result,
+              content: `${result.content}\n\nOutcome: ${outcome}`,
+              contentBoundary: mixedContentBoundary(ref.page),
+              metadata: { ...result.metadata, outcome },
+            };
+          }
+        }
+        const action: HarnessAction = {
+          name,
+          input,
+          output: result.content,
+          outputBoundary: result.contentBoundary,
+          metadata: {
+            ...result.metadata,
+            ...(approval ? { approval } : {}),
+            ...(metricsRecordingError ? { metricsRecordingError } : {}),
+          },
+          timestamp: new Date().toISOString(),
+          durationMs: elapsed(startedAt),
+        };
+        // Attach a compact JPEG of the resulting page state so the host can show
+        // a visual trail of each step. Prefer the live screencast frame already in
+        // memory and keep the agent's critical path free of a blocking
+        // page.screenshot(). Only fall back
+        // to a direct screenshot when no stream frame exists yet (first action, or
+        // a non-chromium browser). Best-effort: the page may be mid-navigation or
+        // already closed (e.g. finish_test), so failures are swallowed.
+        if (options.captureStepScreenshots) {
+          const shotPath = join(options.screenshotDir, `step-${options.actions.length + 1}.jpg`);
+          const frame = options.liveFrame?.();
+          try {
+            if (frame) {
+              await writeFile(shotPath, frame.data);
+            } else {
+              await ref.page.screenshot({ path: shotPath, type: "jpeg", quality: 45 });
+            }
+            action.metadata = {
+              ...action.metadata,
+              stepScreenshotPath: shotPath,
+              traceScreenshotIndex: options.actions.length + 1,
+              ...(typeof frame?.seq === "number" ? { screencastFrameSequence: frame.seq } : {}),
+              ...(typeof frame?.timestamp === "number" ? { screencastFrameTimestamp: frame.timestamp } : {}),
+            };
+          } catch {
+            // Page not screenshot-able right now; skip the visual for this step.
+          }
+        }
+        const urlAfter = observePageUrl(ref.page, cachedUrl, (url) => { cachedUrl = url; });
+        const traceError = recordTrace(options.traceRecorder, action, {
+          startedAt: traceStartedAt,
+          completedAt: action.timestamp,
+          urlBefore,
+          urlAfter,
+          stateChanging: isStateChangingCommand(name),
+          approval,
+          media: traceMedia(action.metadata, options.liveFrame?.()),
+        });
+        if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
+        const metricsError = recordSessionMetrics(
+          options.sessionMetricsRecorder,
+          action,
+          result.modelImages?.map((modelImage) => modelImage.dataUrl),
+        );
+        if (metricsError) {
+          action.metadata = { ...action.metadata, metricsRecordingError: metricsError };
+        }
+        options.actions.push(action);
+        options.onAction?.(action);
+        return result;
+      };
+
+      if (!options.control) return await executeAdmitted();
+      let admitted = false;
+      try {
+        return await options.control.runAutomation(name, async () => {
+          admitted = true;
+          return await executeAdmitted();
+        });
+      } catch (error) {
+        if (!(error instanceof BrowserControlError) || admitted) throw error;
+        recordControlFailure(error);
+        throw error;
       }
-      const traceError = recordTrace(options.traceRecorder, action, {
-        startedAt: traceStartedAt,
-        completedAt: action.timestamp,
-        urlBefore,
-        urlAfter: pageUrl(ref.page),
-        stateChanging: isStateChangingCommand(name),
-        approval,
-        media: traceMedia(action.metadata, options.liveFrame?.()),
-      });
-      if (traceError) action.metadata = { ...action.metadata, traceRecordingError: traceError };
-      const metricsError = recordSessionMetrics(
-        options.sessionMetricsRecorder,
-        action,
-        result.modelImages?.map((modelImage) => modelImage.dataUrl),
-      );
-      if (metricsError) {
-        action.metadata = { ...action.metadata, metricsRecordingError: metricsError };
-      }
-      options.actions.push(action);
-      options.onAction?.(action);
-      return result;
     },
   };
 
@@ -295,6 +367,17 @@ export async function createBrowserTools(
     sessionPolicy.domains,
   );
 
+  options.control?.onTransition((transition) => {
+    if (transition.type === "paused" || transition.type === "automation-resumed") {
+      const pages = new Set([ref.page, ...(options.pages ?? [])]);
+      for (const page of pages) invalidatePageReferences(page);
+    }
+    if (transition.type === "automation-resumed") {
+      awaitingPostTakeoverPageReconciliation = true;
+    }
+    recordControlTransition(options.traceRecorder, transition, cachedUrl);
+  });
+
   // The batch tool replays the other tools by name, so it is built last from
   // the finished list. Inner steps record their own actions, keeping the
   // visual trail and live progress stream identical to unbatched execution.
@@ -311,6 +394,75 @@ function pageUrl(page: Page) {
   } catch {
     return "";
   }
+}
+
+function observePageUrl(page: Page, fallback: string, update: (url: string) => void) {
+  const observed = pageUrl(page);
+  if (observed) update(observed);
+  return observed || fallback;
+}
+
+function reconcileActivePage(
+  ref: { page: Page },
+  pages: Page[] | undefined,
+  activityFor: (page: Page) => NetworkActivity,
+  notify: ((page: Page) => void) | undefined,
+  afterTakeover: boolean,
+) {
+  if (typeof ref.page.isClosed !== "function" || !ref.page.isClosed()) return;
+  const replacement = [...(pages ?? [])].reverse().find((page) =>
+    typeof page.isClosed !== "function" || !page.isClosed());
+  if (!replacement) {
+    if (!afterTakeover) return;
+    throw new BrowserControlError({
+      code: "page_unavailable_after_takeover",
+      state: "automation",
+      command: "reconcile-page",
+      message: "Human control closed every browser page. Supply a live page before the next automation command.",
+    });
+  }
+  ref.page = replacement;
+  activityFor(replacement);
+  notify?.(replacement);
+}
+
+function recordControlTransition(
+  recorder: BrowserToolContext["traceRecorder"],
+  transition: BrowserControlTransition,
+  cachedUrl: string,
+) {
+  // browser_session_close already captures terminal teardown; avoid a second
+  // close event in every session that never entered takeover.
+  if (!recorder || transition.type === "closed") return;
+  const names = {
+    "pause-requested": "browser_control_pause_requested",
+    paused: "browser_control_paused",
+    "human-control-acquired": "browser_control_human_acquired",
+    "automation-resumed": "browser_control_automation_resumed",
+  } as const;
+  const input = {
+    requestId: transition.requestId,
+    reason: transition.reason,
+    ...(transition.message ? {
+      message: { redacted: true, type: "string", length: [...transition.message].length },
+    } : {}),
+    ...(transition.outcome ? { outcome: transition.outcome } : {}),
+    revision: transition.revision,
+  };
+  recorder.record({
+    name: names[transition.type],
+    input,
+    output: `Browser control changed from ${transition.from} to ${transition.to}.`,
+    outputBoundary: { source: "harness", trust: "trusted" },
+    timestamp: transition.timestamp,
+    durationMs: 0,
+  }, {
+    startedAt: transition.timestamp,
+    completedAt: transition.timestamp,
+    urlBefore: cachedUrl,
+    urlAfter: cachedUrl,
+    stateChanging: true,
+  });
 }
 
 function traceMedia(

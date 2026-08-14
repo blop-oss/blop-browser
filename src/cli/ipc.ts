@@ -20,6 +20,9 @@ export type RpcMethod =
   | "list_tools"
   | "describe_tool"
   | "call_tool"
+  | "request_takeover"
+  | "take_control"
+  | "resume_automation"
   | "shutdown";
 
 export type RpcRequest = {
@@ -45,6 +48,17 @@ export type RpcResponse = {
       decision: "allow" | "deny" | "ask";
       phase?: "requested" | "redirect" | "navigation" | "new-page";
       origin?: string;
+    };
+    control?: {
+      code:
+        | "automation_paused"
+        | "invalid_control_transition"
+        | "page_unavailable_after_takeover"
+        | "session_closed"
+        | "takeover_unavailable";
+      state: "automation" | "pausing" | "paused" | "human-control" | "closed";
+      command: string;
+      requestId?: string;
     };
   };
 };
@@ -251,6 +265,7 @@ export function errorResponse(
   message: string,
   contentBoundary?: ToolContentBoundary,
   policy?: NonNullable<RpcResponse["error"]>["policy"],
+  control?: NonNullable<RpcResponse["error"]>["control"],
 ): RpcResponse {
   return {
     id,
@@ -260,6 +275,7 @@ export function errorResponse(
       message,
       ...(contentBoundary ? { contentBoundary } : {}),
       ...(policy ? { policy } : {}),
+      ...(control ? { control } : {}),
     },
   };
 }

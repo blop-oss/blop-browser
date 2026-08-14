@@ -51,6 +51,7 @@ import {
   identifyCdpEndpoint,
   type CliSessionPrivacySummary,
 } from "./cli/privacy.js";
+import { BrowserControlError } from "./session/control.js";
 
 const HELP = `Blop Browser — browser infrastructure for coding agents
 
@@ -68,6 +69,9 @@ Usage:
   blop-browser [--session NAME] tools [--json]
   blop-browser [--session NAME] describe TOOL [--json]
   blop-browser [--session NAME] status [--json]
+  blop-browser [--session NAME] takeover request challenge|sensitive-step|other [--message TEXT] [--json]
+  blop-browser [--session NAME] takeover control REQUEST_ID [--json]
+  blop-browser [--session NAME] takeover resume REQUEST_ID LEASE_ID [--outcome completed|cancelled] [--json]
   blop-browser [--session NAME] trace [--json]
   blop-browser [--session NAME] metrics [--json]
   blop-browser [--session NAME] close [--json]
@@ -200,7 +204,9 @@ export async function main(argv = process.argv.slice(2)) {
         throw new Error("Usage: blop-browser data delete SESSION");
       }
       validateSessionName(targetSession);
-      printResponse(await destroySessionState(targetSession), parsed.json);
+      const response = await destroySessionState(targetSession);
+      printResponse(response, parsed.json);
+      if (!response.ok) process.exitCode = 1;
       return;
     }
     throw new Error("Usage: blop-browser data list | data delete SESSION");
@@ -269,6 +275,8 @@ export async function main(argv = process.argv.slice(2)) {
     response = await closeSessionState(parsed.session);
   } else if (parsed.command === "destroy") {
     response = await destroySessionState(parsed.session);
+  } else if (parsed.command === "takeover") {
+    response = await runTakeoverCommand(parsed);
   } else if (parsed.command === "call") {
     const name = parsed.rest[0];
     if (!name) throw new Error("Usage: blop-browser call TOOL --input JSON");
@@ -293,6 +301,54 @@ export async function main(argv = process.argv.slice(2)) {
   if (parsed.command === "trace" && !parsed.json) printTraceResponse(response);
   else printResponse(response, parsed.json);
   if (!response.ok) process.exitCode = 1;
+}
+
+async function runTakeoverCommand(parsed: ParsedArgs): Promise<RpcResponse> {
+  const operation = parsed.rest[0];
+  const endpoint = await activeDaemon(parsed.session);
+  if (operation === "request") {
+    const reason = parsed.rest[1];
+    if (reason !== "challenge" && reason !== "sensitive-step" && reason !== "other") {
+      throw new Error("Usage: blop-browser takeover request challenge|sensitive-step|other [--message TEXT]");
+    }
+    return await requestDaemon(endpoint, "request_takeover", {
+      reason,
+      ...(optionValue(parsed.rest.slice(2), "--message") !== undefined
+        ? { message: optionValue(parsed.rest.slice(2), "--message") }
+        : {}),
+    });
+  }
+  if (operation === "control") {
+    const requestId = parsed.rest[1];
+    if (!requestId) throw new Error("Usage: blop-browser takeover control REQUEST_ID");
+    return await requestDaemon(endpoint, "take_control", { requestId });
+  }
+  if (operation === "resume") {
+    const requestId = parsed.rest[1];
+    const leaseId = parsed.rest[2];
+    if (!requestId || !leaseId) {
+      throw new Error("Usage: blop-browser takeover resume REQUEST_ID LEASE_ID [--outcome completed|cancelled]");
+    }
+    const outcome = optionValue(parsed.rest.slice(3), "--outcome");
+    if (outcome !== undefined && outcome !== "completed" && outcome !== "cancelled") {
+      throw new Error("--outcome must be completed or cancelled.");
+    }
+    return await requestDaemon(endpoint, "resume_automation", {
+      requestId,
+      leaseId,
+      ...(outcome ? { outcome } : {}),
+    });
+  }
+  throw new Error("Usage: blop-browser takeover request|control|resume ...");
+}
+
+async function activeDaemon(session: string) {
+  const endpoint = await readEndpoint(session);
+  if (!endpoint || !await daemonIsHealthy(endpoint)) {
+    if (endpoint) await removeEndpoint(session);
+    throw new Error("Human takeover requires an active browser session. Start or attach the browser first.");
+  }
+  return endpoint;
 }
 
 function shortcutCall(command: string, args: string[]): { name: string; input: Record<string, unknown> } | null {
@@ -429,7 +485,7 @@ export function shouldRunFirstConfig(input: {
 }) {
   const { argv, command, configured, json, interactive } = input;
   if (configured || json || !interactive) return false;
-  if (["", "help", "--help", "-h", "config", "install", "skill", "data", "doctor", "status", "trace", "metrics", "close", "destroy", "_daemon"]
+  if (["", "help", "--help", "-h", "config", "install", "skill", "data", "doctor", "status", "trace", "metrics", "takeover", "close", "destroy", "_daemon"]
     .includes(command)) return false;
   return !["--browser", "--cdp-endpoint", "--attach-existing", "--headless", "--headed"]
     .some((option) => argv.includes(option));
@@ -852,10 +908,15 @@ async function destroySessionState(session: string): Promise<RpcResponse> {
       const activeScope = (status.result as { sessionScope?: typeof scope } | undefined)?.sessionScope;
       if (activeScope) scope = activeScope;
       const shutdown = await requestDaemon(endpoint, "shutdown", { reason: "destroy" });
+      if (!shutdown.ok) return shutdown;
       traceEvent = (shutdown.result as { traceEvent?: unknown } | undefined)?.traceEvent;
-      const deadline = Date.now() + 5_000;
-      while (Date.now() < deadline && await daemonIsHealthy(endpoint)) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
+      const shutdownTimeout = sessionCleanupTimeout();
+      if (!await waitForDaemonToStop(endpoint, shutdownTimeout)) {
+        return errorResponse(
+          shutdown.id,
+          "cleanup_timeout",
+          `Session "${session}" did not stop within ${shutdownTimeout}ms; its managed data and daemon log were preserved for diagnosis.`,
+        );
       }
     } else if (endpoint) {
       await removeEndpoint(session);
@@ -897,17 +958,8 @@ async function closeSessionState(session: string): Promise<RpcResponse> {
   );
   const response = await requestDaemon(endpoint, "shutdown");
   if (profileMode === "disposable" && response.ok) {
-    const shutdownTimeout = numericEnvironment(
-      "BLOP_BROWSER_CLOSE_TIMEOUT_MS",
-      5_000,
-      25,
-      5_000,
-    );
-    const deadline = Date.now() + shutdownTimeout;
-    while (Date.now() < deadline && await daemonIsHealthy(endpoint)) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    if (await daemonIsHealthy(endpoint)) {
+    const shutdownTimeout = sessionCleanupTimeout();
+    if (!await waitForDaemonToStop(endpoint, shutdownTimeout)) {
       return errorResponse(
         response.id,
         "cleanup_timeout",
@@ -917,6 +969,26 @@ async function closeSessionState(session: string): Promise<RpcResponse> {
     await rm(pathsForSession(session).log, { force: true });
   }
   return response;
+}
+
+function sessionCleanupTimeout() {
+  return numericEnvironment(
+    "BLOP_BROWSER_CLEANUP_TIMEOUT_MS",
+    5_000,
+    25,
+    5_000,
+  );
+}
+
+async function waitForDaemonToStop(
+  endpoint: DaemonEndpoint,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && await daemonIsHealthy(endpoint)) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return !await daemonIsHealthy(endpoint);
 }
 
 async function requestWithoutStarting(
@@ -1047,7 +1119,7 @@ async function handleDaemonRequest(
     } catch (error) {
       return errorResponse(
         id,
-        "tool_error",
+        error instanceof BrowserControlError ? error.code : "tool_error",
         messageOf(error),
         error instanceof BrowserToolError ? error.contentBoundary : undefined,
         error instanceof BrowserSafetyError ? {
@@ -1058,7 +1130,45 @@ async function handleDaemonRequest(
           ...(error.phase ? { phase: error.phase } : {}),
           ...(error.origin ? { origin: error.origin } : {}),
         } : undefined,
+        error instanceof BrowserControlError ? controlRpcError(error) : undefined,
       );
+    }
+  }
+  if (method === "request_takeover") {
+    try {
+      const reason = params?.reason;
+      if (reason !== "challenge" && reason !== "sensitive-step" && reason !== "other") {
+        return errorResponse(id, "invalid_input", "Takeover reason must be challenge, sensitive-step, or other.");
+      }
+      const message = params?.message;
+      if (message !== undefined && typeof message !== "string") {
+        return errorResponse(id, "invalid_input", "Takeover message must be a string.");
+      }
+      return okResponse(id, await runtime.requestTakeover({ reason, ...(message ? { message } : {}) }));
+    } catch (error) {
+      return controlErrorResponse(id, error);
+    }
+  }
+  if (method === "take_control") {
+    try {
+      return okResponse(id, await runtime.takeControl(String(params?.requestId ?? "")));
+    } catch (error) {
+      return controlErrorResponse(id, error);
+    }
+  }
+  if (method === "resume_automation") {
+    try {
+      const outcome = params?.outcome;
+      if (outcome !== undefined && outcome !== "completed" && outcome !== "cancelled") {
+        return errorResponse(id, "invalid_input", "Takeover outcome must be completed or cancelled.");
+      }
+      return okResponse(id, await runtime.resumeAutomation({
+        requestId: String(params?.requestId ?? ""),
+        leaseId: String(params?.leaseId ?? ""),
+        ...(outcome ? { outcome } : {}),
+      }));
+    } catch (error) {
+      return controlErrorResponse(id, error);
     }
   }
   if (method === "shutdown") {
@@ -1073,6 +1183,26 @@ async function handleDaemonRequest(
     });
   }
   return errorResponse(id, "unknown_method", `Unknown daemon method "${method}".`);
+}
+
+function controlErrorResponse(id: string, error: unknown) {
+  return errorResponse(
+    id,
+    error instanceof BrowserControlError ? error.code : "control_error",
+    messageOf(error),
+    error instanceof BrowserToolError ? error.contentBoundary : undefined,
+    undefined,
+    error instanceof BrowserControlError ? controlRpcError(error) : undefined,
+  );
+}
+
+function controlRpcError(error: BrowserControlError) {
+  return {
+    code: error.code,
+    state: error.state,
+    command: error.command,
+    ...(error.requestId ? { requestId: error.requestId } : {}),
+  } as const;
 }
 
 function numericEnvironment(

@@ -52,7 +52,6 @@ const REQUIRED_UNKNOWNS = [
   ["Traces and recordings", "Blop Browser"],
   ["Session inspection and cleanup", "Playwright MCP"],
   ["Session inspection and cleanup", "Browser Use CLI + Browser Harness"],
-  ["Local and cloud requirements", "Blop Browser"],
   ["Local and cloud requirements", "Playwright CLI"],
 ];
 
@@ -114,6 +113,19 @@ function validateMatrix(source, failures) {
   }
 
   const cellsByCapability = new Map(rows.slice(2).map((row) => [row[0], row]));
+  const blopCloudRequirements = cellsByCapability.get(
+    "Local and cloud requirements",
+  )?.[1];
+  if (
+    blopCloudRequirements &&
+    !blopCloudRequirements.includes(
+      "Blop Browser has no hosted free or paid tier",
+    )
+  ) {
+    failures.push(
+      "Local and cloud requirements / Blop Browser: must state that no hosted free or paid tier exists",
+    );
+  }
   for (const [capability, product] of REQUIRED_UNKNOWNS) {
     const row = cellsByCapability.get(capability);
     const column = EXPECTED_PRODUCTS.indexOf(product) + 1;

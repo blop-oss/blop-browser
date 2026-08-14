@@ -4,6 +4,7 @@ import { createBrowserTools } from "../../src/create-tools.js";
 import type { HarnessAction } from "../../src/types.js";
 import type { BrowserSafetyPolicy } from "../../src/tools/types.js";
 import type { TraceRecorder } from "../../src/trace-recorder.js";
+import type { BrowserControlSession } from "../../src/session/control.js";
 import type { SessionMetricsRecorder } from "../../src/session-metrics.js";
 import { startFixtureServer, type FixtureRoute } from "../fixtures/server.js";
 
@@ -19,6 +20,7 @@ export async function setupToolPage(
   extraRoutes: FixtureRoute[] = [],
   options: {
     safety?: BrowserSafetyPolicy;
+    control?: BrowserControlSession;
     traceRecorder?: TraceRecorder;
     sessionMetricsRecorder?: SessionMetricsRecorder;
     captureStepScreenshots?: boolean;
@@ -58,6 +60,7 @@ export async function setupToolPage(
     screenshots: [],
     finishState: { status: null, reason: null },
     safety: options.safety,
+    control: options.control,
     traceRecorder: options.traceRecorder,
     sessionMetricsRecorder: options.sessionMetricsRecorder,
     captureStepScreenshots: options.captureStepScreenshots,
