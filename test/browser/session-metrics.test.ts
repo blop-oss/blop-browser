@@ -228,6 +228,26 @@ describe("browser session metrics", () => {
     ));
     expect(() => validateSessionMetrics(withUnclassified.snapshot()))
       .not.toThrow();
+
+    const excessiveApprovalRemainder = structuredClone(
+      withUnclassified.snapshot(),
+    );
+    excessiveApprovalRemainder.commands.approvals = {
+      requested: 2,
+      approved: 2,
+      denied: 0,
+    };
+    expect(() => validateSessionMetrics(excessiveApprovalRemainder)).toThrow(
+      "classified aggregates don't match commands",
+    );
+
+    const excessiveDuration = structuredClone(metrics);
+    const impossibleTotalMs = 24 * 60 * 60 * 1_000 + 1;
+    excessiveDuration.commands.duration.totalMs = impossibleTotalMs;
+    excessiveDuration.commands.byCommand[0]!.duration.totalMs = impossibleTotalMs;
+    expect(() => validateSessionMetrics(excessiveDuration)).toThrow(
+      "duration fields are inconsistent",
+    );
   });
 
   test("integrates with browser actions and counts only harness-owned retries", async () => {

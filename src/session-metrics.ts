@@ -588,7 +588,7 @@ export function validateSessionMetrics(
     commandCounters.unclassifiedActions > commandCounters.total ||
     !classifiedTotalMatches(bucketSucceeded, commandCounters.succeeded, unclassified) ||
     !classifiedTotalMatches(bucketFailed, commandCounters.failed, unclassified) ||
-    !classifiedTotalMatches(
+    !classifiedApprovalMatches(
       bucketApprovals.requested,
       commandApprovals.requested,
       unclassified,
@@ -836,6 +836,9 @@ function validateDuration(
     throw new Error("Session metrics duration is invalid.");
   }
   exactKeys(value, ["totalMs", "minimumMs", "maximumMs"]);
+  const maximumTotalMs = observations > Math.floor(MAX_COUNTER / MAX_ACTION_DURATION_MS)
+    ? MAX_COUNTER
+    : observations * MAX_ACTION_DURATION_MS;
   if (
     !boundedNumber(value.totalMs) ||
     (value.minimumMs !== null && !boundedNumber(value.minimumMs)) ||
@@ -845,7 +848,8 @@ function validateDuration(
     (observations > 0 &&
       (value.minimumMs === null || value.maximumMs === null ||
         value.minimumMs > value.maximumMs || value.maximumMs > value.totalMs ||
-        value.maximumMs > MAX_ACTION_DURATION_MS))
+        value.maximumMs > MAX_ACTION_DURATION_MS ||
+        value.totalMs > maximumTotalMs))
   ) {
     throw new Error("Session metrics duration fields are inconsistent.");
   }
@@ -991,6 +995,15 @@ function classifiedTotalMatches(
   return unclassifiedActions === 0
     ? classified === aggregate
     : classified <= aggregate;
+}
+
+function classifiedApprovalMatches(
+  classified: number,
+  aggregate: number,
+  unclassifiedActions: number,
+) {
+  return classified <= aggregate &&
+    aggregate - classified <= unclassifiedActions;
 }
 
 function classifiedNumberMatches(
