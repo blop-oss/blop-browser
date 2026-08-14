@@ -4,6 +4,9 @@ Browser action traces provide a bounded, ordered record of browser commands for
 debugging and authorized post-mortem review. You can export the same trace as
 machine-readable JSON or a compact human timeline.
 
+Read the [privacy and data-flow contract](../PRIVACY.md) before recording
+authenticated or confidential pages or sharing an export.
+
 ## Export a CLI trace
 
 Use `trace` while a named session is active or after a persistent session has

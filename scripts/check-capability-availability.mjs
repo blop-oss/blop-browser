@@ -37,6 +37,7 @@ const requiredCapabilities = [
   "Camoufox",
   "Recordings and traces",
   "Session metrics",
+  "Privacy and telemetry",
   "Human takeover",
   "Proxy service",
   "Retention and deletion",
@@ -208,9 +209,13 @@ for (const required of [
   "blop-browser --session local-review status --json",
   "blop-browser --session local-review trace --json",
   "blop-browser --session local-review metrics --json",
+  "blop-browser data list --json",
+  "The CLI emits a structured privacy summary before the first browser command and through `status` and `doctor`.",
+  "First-party harness telemetry is off and has no collection backend",
+  "this is not a claim about browser/site, CDP, diagnostic, host/provider, or other network flows",
   "blop-browser --session local-review close",
   "blop-browser --session local-review destroy",
-  "Disposable close or idle shutdown removes the managed profile, downloads, and artifact directories, but the per-session daemon log remains in the runtime directory until `destroy`.",
+  "Disposable close or idle shutdown removes the managed profile, downloads, artifacts, and daemon log after shutdown is confirmed; a cleanup timeout preserves managed data and reports failure.",
 ]) {
   if (!normalizedDocument.includes(required)) {
     failures.push(
@@ -460,11 +465,11 @@ function validateIntegration(paths) {
   }
   if (
     !normalizedLimitations.includes(
-      "The per-session daemon log remains in the runtime directory until `destroy`",
+      "reports `cleanup_timeout` and preserves the relevant managed paths instead of claiming deletion",
     )
   ) {
     failures.push(
-      "Known limitations must disclose disposable daemon-log retention.",
+      "Known limitations must disclose cleanup-timeout preservation.",
     );
   }
 

@@ -4,7 +4,8 @@ Blop Browser controls real browsers and can attach to authenticated Chrome
 profiles. Treat its CDP endpoints, runtime files, screenshots, logs, and browser
 state as sensitive. This policy identifies supported versions, explains how to
 report a product vulnerability privately, and assigns responsibility for
-security triage.
+security triage. The [privacy and data-flow contract](PRIVACY.md) separately
+documents normal browser, host, recording, and retention behavior.
 
 ## Supported versions
 

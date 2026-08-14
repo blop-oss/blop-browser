@@ -26,6 +26,11 @@ describe.skipIf(!hasDocker)("Camoufox container session", () => {
   test("runs Camoufox in a separate reusable container", async () => {
     const sessionA = await startCamoufoxContainer({ containerName: TEST_CONTAINER });
     try {
+      expect(sessionA.hasInternetEgress).toBeNull();
+      expect(sessionA.internetEgressProbe).toEqual({
+        enabled: false,
+        destination: null,
+      });
       const contextA = await sessionA.browser.newContext({ viewport: null });
       const pageA = await contextA.newPage();
       await pageA.setContent("<title>Camoufox A</title><h1>ready a</h1>");

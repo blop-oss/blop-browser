@@ -164,10 +164,10 @@ describe("capability availability", () => {
     );
   });
 
-  test("rejects a disposable-retention claim that hides the daemon log", async () => {
+  test("rejects a disposable-retention claim that hides cleanup failure", async () => {
     const document = await mutatedDocument((source) =>
       source.replace(
-        "Disposable close or idle shutdown removes the managed profile, downloads, and artifact directories, but the per-session daemon log remains in the runtime directory until `destroy`.",
+        "Disposable close or idle shutdown removes the managed profile, downloads, artifacts, and daemon log after shutdown is confirmed; a cleanup timeout preserves managed data and reports failure.",
         "Disposable state is fully removed on close.",
       ),
     );
@@ -175,7 +175,7 @@ describe("capability availability", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      "per-session daemon log remains in the runtime directory until `destroy`",
+      "cleanup timeout preserves managed data and reports failure",
     );
   });
 
@@ -197,6 +197,16 @@ describe("capability availability", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Missing capability: Session metrics");
+  });
+
+  test("requires availability for advertised privacy and telemetry", async () => {
+    const document = await mutatedDocument((source) =>
+      removeTableRow(source, "Privacy and telemetry"),
+    );
+    const result = await runChecker("--document", document);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Missing capability: Privacy and telemetry");
   });
 
   test("requires availability for the advertised human takeover", async () => {

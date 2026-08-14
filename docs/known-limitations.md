@@ -4,6 +4,8 @@ Blop Browser is browser infrastructure, not a complete browser agent. It gives
 an agent host controlled Playwright tools, session lifecycle, and browser
 evidence, but it includes no model, planner, or autonomous agent loop. Review
 these boundaries before choosing a browser mode or handling authenticated data.
+Read the [privacy and data-flow contract](../PRIVACY.md) for the explicit local,
+remote, recording, and deletion paths.
 
 ## Availability and hosting
 
@@ -100,13 +102,18 @@ Distinct managed session names receive separate profile, download, and
 artifact paths. This is browser-storage separation, not operating-system,
 process, container, domain, or network isolation.
 
-Persistent mode retains managed state after close and idle shutdown until you
-run `destroy`. Disposable mode removes its managed profile, downloads, and
-artifacts on close or idle shutdown. The per-session daemon log remains in the
-runtime directory until `destroy`; disposable close does not remove it. Neither
-mode reverses server-side state or deletes data owned by a website. An attached
-CDP session uses an external profile, and Blop Browser does not delete that
-external profile.
+Persistent mode retains managed state and the daemon log after close and idle
+shutdown until you run `destroy`. Disposable mode removes its managed profile,
+downloads, artifacts, and daemon log on close or idle shutdown. `data list`
+reports bounded no-follow metadata without walking profile directories. It is
+not a complete disk inventory. Neither mode reverses server-side state or
+deletes data owned by a website. An attached CDP session uses an external
+profile, and Blop Browser does not delete that external profile. Global
+configuration, browser caches, Docker resources, backups, and host/provider
+records also remain outside session deletion.
+If daemon shutdown cannot be confirmed within the bounded cleanup timeout,
+`close`, `destroy`, or `data delete` reports `cleanup_timeout` and preserves the
+relevant managed paths instead of claiming deletion.
 
 ## Existing Chrome and Camoufox
 

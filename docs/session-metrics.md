@@ -3,7 +3,9 @@
 Browser session metrics provide a bounded, framework-neutral aggregate of work
 that Blop Browser can observe directly. Use them to inspect one session or to
 build a reproducible local comparison. They do not retain tool payload content
-or claim model-provider token usage.
+or claim model-provider token usage. The
+[privacy and data-flow contract](../PRIVACY.md) covers the surrounding browser,
+host, and retained-data flows.
 
 ## Export CLI metrics
 

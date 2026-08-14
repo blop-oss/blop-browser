@@ -9,6 +9,7 @@ const onboardingFiles = [
   "README.md",
   "CONTRIBUTING.md",
   "SECURITY.md",
+  "PRIVACY.md",
   "skills/browser-harness/SKILL.md",
   "docs/demo-recording.md",
   "docs/launch-checklist.md",

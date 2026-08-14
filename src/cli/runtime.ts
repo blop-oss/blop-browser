@@ -30,6 +30,11 @@ import {
 import type { HarnessAction, HarnessBrowserLog } from "../types.js";
 import type { FinishState, NativeToolBridge } from "../tools/types.js";
 import {
+  createCliSessionPrivacySummary,
+  displayCdpEndpoint,
+  identifyCdpEndpoint,
+} from "./privacy.js";
+import {
   BrowserControlError,
   createBrowserControlSession,
   type BrowserControlStatus,
@@ -166,18 +171,27 @@ async function launchChromium(headless: boolean, scope: BrowserSessionScope): Pr
 }
 
 async function connectChromeOverCdp(endpoint: string): Promise<LaunchedBrowser> {
-  const browser = await chromium.connectOverCDP(endpoint);
-  const existingContext = browser.contexts()[0];
-  const context = existingContext ?? await browser.newContext({ bypassCSP: true });
-  const existingPages = context.pages();
-  const page = existingPages.at(-1) ?? await context.newPage();
-  return {
-    browser,
-    context,
-    page,
-    pages: existingPages.length > 0 ? existingPages : [page],
-    ownsContext: !existingContext,
-  };
+  try {
+    const browser = await chromium.connectOverCDP(endpoint);
+    const existingContext = browser.contexts()[0];
+    const context = existingContext ?? await browser.newContext({ bypassCSP: true });
+    const existingPages = context.pages();
+    const page = existingPages.at(-1) ?? await context.newPage();
+    return {
+      browser,
+      context,
+      page,
+      pages: existingPages.length > 0 ? existingPages : [page],
+      ownsContext: !existingContext,
+    };
+  } catch (error) {
+    const errorClass = error instanceof Error && /^[A-Za-z][A-Za-z0-9]*$/.test(error.name)
+      ? error.name
+      : "Error";
+    throw new Error(
+      `Could not connect to Chrome over CDP at ${displayCdpEndpoint(endpoint)} (${errorClass}).`,
+    );
+  }
 }
 
 async function launchCamoufox(headless: boolean, scope: BrowserSessionScope): Promise<LaunchedBrowser> {
@@ -464,7 +478,8 @@ async function createRuntimeFromBrowser(
         browser: browserName,
         browserVersion,
         connection,
-        cdpEndpoint: cdpEndpoint ?? null,
+        cdpEndpoint: cdpEndpoint ? displayCdpEndpoint(cdpEndpoint) : null,
+        cdpEndpointIdentity: cdpEndpoint ? identifyCdpEndpoint(cdpEndpoint) : null,
         pid: process.pid,
         url: cachedPageStatus.url,
         title: cachedPageStatus.title,
@@ -486,6 +501,9 @@ async function createRuntimeFromBrowser(
         finishState,
         artifactDirectory,
         sessionScope: currentSessionScope ? { ...currentSessionScope } : undefined,
+        privacy: currentSessionScope
+          ? createCliSessionPrivacySummary(session, currentSessionScope, cdpEndpoint)
+          : undefined,
         safetyMode,
         control: control.status(),
         humanAccess,

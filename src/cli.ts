@@ -32,6 +32,10 @@ import {
 } from "./cli/runtime.js";
 import { readPersistedCliTrace } from "./cli/trace-store.js";
 import { readPersistedCliMetrics } from "./cli/metrics-store.js";
+import {
+  listRetainedSessionData,
+  preservedRetainedData,
+} from "./cli/data-store.js";
 import { getBrowserSessionScope, type BrowserProfileMode } from "./session/scope.js";
 import {
   createTraceRecorder,
@@ -41,6 +45,12 @@ import {
 import { emptySessionMetrics } from "./session-metrics.js";
 import type { ToolContentBoundary } from "./types.js";
 import { BrowserSafetyError, BrowserToolError } from "./tools/safety.js";
+import {
+  createCliSessionPrivacySummary,
+  displayCdpEndpoint,
+  identifyCdpEndpoint,
+  type CliSessionPrivacySummary,
+} from "./cli/privacy.js";
 import { BrowserControlError } from "./session/control.js";
 
 const HELP = `Blop Browser — browser infrastructure for coding agents
@@ -66,6 +76,8 @@ Usage:
   blop-browser [--session NAME] metrics [--json]
   blop-browser [--session NAME] close [--json]
   blop-browser [--session NAME] destroy [--json]
+  blop-browser data list [--json]
+  blop-browser data delete SESSION [--json]
   blop-browser skill show
   blop-browser skill install --target agents|claude|opencode|all [--scope project|user]
   blop-browser config [--mode MODE] [--json]
@@ -79,6 +91,7 @@ Global options:
   --attach-existing             Explicitly allow access to an existing CDP profile
   --profile persistent|disposable
                                  Keep managed state until destroy, or remove it on close
+  --telemetry off               First-party harness telemetry is disabled
   --headless                    Run a new managed browser without a window
   --headed                      Run a new managed browser with a window
   --json                         Print a machine-readable response envelope
@@ -101,6 +114,7 @@ type ParsedArgs = {
   connection?: "launch" | "cdp";
   headless: boolean;
   json: boolean;
+  telemetry: "off";
   command: string;
   rest: string[];
 };
@@ -119,12 +133,14 @@ type BrowserConfig = {
   version: 1;
   mode: InstallMode;
   cdpEndpoint?: string;
+  telemetry: "off";
 };
 
 export async function main(argv = process.argv.slice(2)) {
   const configPath = browserConfigPath();
   let config = await readBrowserConfig(configPath);
   let parsed = parseArgs(argv, config);
+  delete process.env.BLOP_BROWSER_DAEMON_CDP_ENDPOINT;
   if (shouldRunFirstConfig({
     argv,
     command: parsed.command,
@@ -170,6 +186,32 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
 
+  if (parsed.command === "data") {
+    const action = parsed.rest[0];
+    if (action === "list") {
+      if (parsed.rest.length !== 1) {
+        throw new Error("Usage: blop-browser data list");
+      }
+      printResponse(okResponse("data-list", await listRetainedSessionData(
+        pathsForSession(parsed.session).directory,
+        configPath,
+      )), parsed.json);
+      return;
+    }
+    if (action === "delete") {
+      const targetSession = parsed.rest[1];
+      if (!targetSession || parsed.rest.length !== 2) {
+        throw new Error("Usage: blop-browser data delete SESSION");
+      }
+      validateSessionName(targetSession);
+      const response = await destroySessionState(targetSession);
+      printResponse(response, parsed.json);
+      if (!response.ok) process.exitCode = 1;
+      return;
+    }
+    throw new Error("Usage: blop-browser data list | data delete SESSION");
+  }
+
   if (parsed.command === "doctor") {
     const [chromiumPath, camoufoxPath] = await Promise.all([
       resolveBrowserExecutable(),
@@ -178,6 +220,11 @@ export async function main(argv = process.argv.slice(2)) {
     const executablePath = parsed.browser === "camoufox" ? camoufoxPath : chromiumPath;
     const endpoint = await readEndpoint(parsed.session);
     const active = Boolean(endpoint && await daemonIsHealthy(endpoint));
+    const sessionScope = getBrowserSessionScope(parsed.session, {
+      runtimeDirectory: pathsForSession(parsed.session).directory,
+      existingProfile: parsed.connection === "cdp",
+      profileMode: parsed.profileMode,
+    });
     printResponse(okResponse("doctor", {
       browser: {
         name: parsed.browser,
@@ -199,26 +246,33 @@ export async function main(argv = process.argv.slice(2)) {
       configuration: {
         path: configPath,
         mode: config?.mode ?? null,
+        telemetry: parsed.telemetry,
       },
       runtimeDirectory: pathsForSession(parsed.session).directory,
-      sessionScope: getBrowserSessionScope(parsed.session, {
-        runtimeDirectory: pathsForSession(parsed.session).directory,
-        existingProfile: parsed.connection === "cdp",
-        profileMode: parsed.profileMode,
-      }),
+      sessionScope,
+      privacy: createCliSessionPrivacySummary(
+        parsed.session,
+        sessionScope,
+        parsed.cdpEndpoint,
+      ),
     }), parsed.json);
     return;
   }
 
   let response: RpcResponse;
   if (parsed.command === "status") {
-    response = await requestWithoutStarting(parsed.session, "status", parsed.profileMode);
+    response = await requestWithoutStarting(
+      parsed.session,
+      "status",
+      parsed.profileMode,
+      parsed.cdpEndpoint,
+    );
   } else if (parsed.command === "trace") {
     response = await requestWithoutStarting(parsed.session, "export_trace", parsed.profileMode);
   } else if (parsed.command === "metrics") {
     response = await requestWithoutStarting(parsed.session, "export_metrics", parsed.profileMode);
   } else if (parsed.command === "close") {
-    response = await requestWithoutStarting(parsed.session, "shutdown");
+    response = await closeSessionState(parsed.session);
   } else if (parsed.command === "destroy") {
     response = await destroySessionState(parsed.session);
   } else if (parsed.command === "takeover") {
@@ -228,21 +282,21 @@ export async function main(argv = process.argv.slice(2)) {
     if (!name) throw new Error("Usage: blop-browser call TOOL --input JSON");
     const rawInput = optionValue(parsed.rest.slice(1), "--input") ?? "{}";
     const input = parseObject(rawInput, "--input");
-    const endpoint = await ensureDaemon(parsed);
-    response = await requestDaemon(endpoint, "call_tool", { name, input });
+    const daemon = await ensureDaemon(parsed);
+    response = await requestStartedDaemon(daemon, "call_tool", { name, input }, parsed.json);
   } else if (parsed.command === "tools") {
-    const endpoint = await ensureDaemon(parsed);
-    response = await requestDaemon(endpoint, "list_tools");
+    const daemon = await ensureDaemon(parsed);
+    response = await requestStartedDaemon(daemon, "list_tools", {}, parsed.json);
   } else if (parsed.command === "describe") {
     const name = parsed.rest[0];
     if (!name) throw new Error("Usage: blop-browser describe TOOL");
-    const endpoint = await ensureDaemon(parsed);
-    response = await requestDaemon(endpoint, "describe_tool", { name });
+    const daemon = await ensureDaemon(parsed);
+    response = await requestStartedDaemon(daemon, "describe_tool", { name }, parsed.json);
   } else {
     const shortcut = shortcutCall(parsed.command, parsed.rest);
     if (!shortcut) throw new Error(`Unknown command "${parsed.command}". Run blop-browser --help.`);
-    const endpoint = await ensureDaemon(parsed);
-    response = await requestDaemon(endpoint, "call_tool", shortcut);
+    const daemon = await ensureDaemon(parsed);
+    response = await requestStartedDaemon(daemon, "call_tool", shortcut, parsed.json);
   }
   if (parsed.command === "trace" && !parsed.json) printTraceResponse(response);
   else printResponse(response, parsed.json);
@@ -405,6 +459,7 @@ async function runConfigCommand(parsed: ParsedArgs, configPath: string) {
   const config: BrowserConfig = {
     version: 1,
     mode: selection.mode,
+    telemetry: parsed.telemetry,
     ...(cdpEndpoint ? { cdpEndpoint } : {}),
   };
   await writeBrowserConfig(configPath, config);
@@ -415,6 +470,7 @@ async function runConfigCommand(parsed: ParsedArgs, configPath: string) {
     browser: settings.browser,
     headless: settings.headless,
     connection: settings.connection,
+    telemetry: parsed.telemetry,
     ...(cdpEndpoint ? { cdpEndpoint } : {}),
     ...(executablePath ? { executablePath, downloaded } : {}),
   }), parsed.json);
@@ -429,7 +485,7 @@ export function shouldRunFirstConfig(input: {
 }) {
   const { argv, command, configured, json, interactive } = input;
   if (configured || json || !interactive) return false;
-  if (["", "help", "--help", "-h", "config", "install", "skill", "doctor", "status", "trace", "metrics", "takeover", "close", "destroy", "_daemon"]
+  if (["", "help", "--help", "-h", "config", "install", "skill", "data", "doctor", "status", "trace", "metrics", "takeover", "close", "destroy", "_daemon"]
     .includes(command)) return false;
   return !["--browser", "--cdp-endpoint", "--attach-existing", "--headless", "--headed"]
     .some((option) => argv.includes(option));
@@ -496,12 +552,20 @@ function parseArgs(argv: string[], config: BrowserConfig | null): ParsedArgs {
   const requestedProfileMode = profileOverride ? parseProfileMode(profileOverride) : undefined;
   const profileMode = requestedProfileMode ?? "persistent";
   removeOption(args, "--profile");
+  const telemetry = parseTelemetryMode(
+    optionValue(args, "--telemetry")
+      ?? process.env.BLOP_BROWSER_TELEMETRY
+      ?? config?.telemetry
+      ?? "off",
+  );
+  removeOption(args, "--telemetry");
   const headlessFlag = removeFlag(args, "--headless");
   const headedFlag = removeFlag(args, "--headed");
   if (headlessFlag && headedFlag) throw new Error("Use either --headless or --headed, not both.");
   const cliLaunchOverride = Boolean(cliBrowser || headlessFlag || headedFlag);
   const browserOverride = cliBrowser ?? (cliCdpEndpoint ? "chromium" : process.env.BLOP_BROWSER);
   const cdpOverride = cliCdpEndpoint
+    ?? process.env.BLOP_BROWSER_DAEMON_CDP_ENDPOINT
     ?? (!cliLaunchOverride ? process.env.BLOP_BROWSER_CDP_ENDPOINT : undefined);
   const browser = parseBrowserName(browserOverride ?? (cdpOverride ? "chromium" : configured?.browser) ?? "chromium");
   removeOption(args, "--browser");
@@ -539,6 +603,7 @@ function parseArgs(argv: string[], config: BrowserConfig | null): ParsedArgs {
     connection,
     headless,
     json,
+    telemetry,
     command,
     rest: args,
   };
@@ -552,6 +617,13 @@ function parseProfileMode(value: string): BrowserProfileMode {
 function parseInstallMode(value: string): InstallMode {
   if ((INSTALL_MODES as readonly string[]).includes(value)) return value as InstallMode;
   throw new Error(`--mode must be one of: ${INSTALL_MODES.join(", ")}.`);
+}
+
+function parseTelemetryMode(value: string): "off" {
+  if (value === "off") return value;
+  throw new Error(
+    'First-party harness telemetry must be "off"; this package has no telemetry collection backend.',
+  );
 }
 
 function settingsForMode(mode: InstallMode): {
@@ -594,16 +666,24 @@ function browserConfigPath() {
 }
 
 async function readBrowserConfig(path: string): Promise<BrowserConfig | null> {
+  let source: string;
   try {
-    const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<BrowserConfig>;
-    if (parsed.version !== 1 || typeof parsed.mode !== "string") return null;
-    const mode = parseInstallMode(parsed.mode);
-    const cdpEndpoint = mode === "chrome-cdp" ? parseCdpEndpoint(parsed.cdpEndpoint) : undefined;
-    if (mode === "chrome-cdp" && !cdpEndpoint) return null;
-    return { version: 1, mode, ...(cdpEndpoint ? { cdpEndpoint } : {}) };
+    source = await readFile(path, "utf8");
   } catch {
     return null;
   }
+  let parsed: Partial<BrowserConfig>;
+  try {
+    parsed = JSON.parse(source) as Partial<BrowserConfig>;
+  } catch {
+    return null;
+  }
+  if (parsed.version !== 1 || typeof parsed.mode !== "string") return null;
+  const mode = parseInstallMode(parsed.mode);
+  const telemetry = parseTelemetryMode(parsed.telemetry ?? "off");
+  const cdpEndpoint = mode === "chrome-cdp" ? parseCdpEndpoint(parsed.cdpEndpoint) : undefined;
+  if (mode === "chrome-cdp" && !cdpEndpoint) return null;
+  return { version: 1, mode, telemetry, ...(cdpEndpoint ? { cdpEndpoint } : {}) };
 }
 
 async function writeBrowserConfig(path: string, config: BrowserConfig) {
@@ -645,7 +725,12 @@ function parseObject(raw: string, source: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-async function ensureDaemon(parsed: ParsedArgs): Promise<DaemonEndpoint> {
+type EnsuredDaemon = {
+  endpoint: DaemonEndpoint;
+  started: boolean;
+};
+
+async function ensureDaemon(parsed: ParsedArgs): Promise<EnsuredDaemon> {
   const {
     session,
     browser,
@@ -670,16 +755,19 @@ async function ensureDaemon(parsed: ParsedArgs): Promise<DaemonEndpoint> {
     const activeConnection = status.ok
       ? String((status.result as Record<string, unknown> | undefined)?.connection ?? "launch")
       : "launch";
-    const activeCdpEndpoint = status.ok
-      ? String((status.result as Record<string, unknown> | undefined)?.cdpEndpoint ?? "")
+    const activeCdpEndpointIdentity = status.ok
+      ? String((status.result as Record<string, unknown> | undefined)?.cdpEndpointIdentity ?? "")
       : "";
     const activeProfileMode = status.ok
       ? String((status.result as { sessionScope?: { mode?: unknown } } | undefined)?.sessionScope?.mode ?? "persistent")
       : "persistent";
     const connectionMatches = !requestedConnection || activeConnection === requestedConnection;
-    const endpointMatches = !cdpEndpoint || activeCdpEndpoint === cdpEndpoint;
+    const endpointMatches = !cdpEndpoint
+      || activeCdpEndpointIdentity === identifyCdpEndpoint(cdpEndpoint);
     const profileMatches = !requestedProfileMode || activeConnection === "cdp" || activeProfileMode === requestedProfileMode;
-    if (activeBrowser === browser && connectionMatches && endpointMatches && profileMatches) return existing;
+    if (activeBrowser === browser && connectionMatches && endpointMatches && profileMatches) {
+      return { endpoint: existing, started: false };
+    }
     if (activeBrowser === browser && connectionMatches && endpointMatches && !profileMatches) {
       throw new Error(
         `Session "${session}" already uses a ${activeProfileMode} profile. Close it first or use a different --session before switching to ${requestedProfileMode}.`,
@@ -705,7 +793,7 @@ async function ensureDaemon(parsed: ParsedArgs): Promise<DaemonEndpoint> {
     closeSync(startupDescriptor);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    return await waitForDaemon(session, paths.log);
+    return { endpoint: await waitForDaemon(session, paths.log), started: false };
   }
 
   try {
@@ -718,19 +806,46 @@ async function ensureDaemon(parsed: ParsedArgs): Promise<DaemonEndpoint> {
       ]);
     }
     const daemonArgs = [entry, "--session", session, "--browser", browser, "--profile", profileMode];
-    if (cdpEndpoint) daemonArgs.push("--cdp-endpoint", cdpEndpoint, "--attach-existing");
+    if (cdpEndpoint) daemonArgs.push("--attach-existing");
     daemonArgs.push("_daemon");
     const child = spawn(executable, daemonArgs, {
       detached: true,
-      env: process.env,
+      env: {
+        ...process.env,
+        ...(cdpEndpoint
+          ? { BLOP_BROWSER_DAEMON_CDP_ENDPOINT: cdpEndpoint }
+          : {}),
+      },
       stdio: ["ignore", descriptor, descriptor],
     });
     child.unref();
     closeSync(descriptor);
-    return await waitForDaemon(session, paths.log, child);
+    return { endpoint: await waitForDaemon(session, paths.log, child), started: true };
   } finally {
     await rm(paths.startup, { force: true });
   }
+}
+
+async function requestStartedDaemon(
+  daemon: EnsuredDaemon,
+  method: RpcMethod,
+  params: Record<string, unknown> = {},
+  json = false,
+): Promise<RpcResponse> {
+  if (!daemon.started) return await requestDaemon(daemon.endpoint, method, params);
+  const status = await requestDaemon(daemon.endpoint, "status");
+  if (!status.ok) return status;
+  const privacy = (status.result as { privacy?: CliSessionPrivacySummary } | undefined)?.privacy;
+  if (!privacy) {
+    return errorResponse(
+      status.id,
+      "privacy_unavailable",
+      "The new browser daemon did not provide its privacy summary; the requested command was not dispatched.",
+    );
+  }
+  if (!json) process.stderr.write(`${formatPrivacySummary(privacy)}\n`);
+  const response = await requestDaemon(daemon.endpoint, method, params);
+  return { ...response, privacy };
 }
 
 async function daemonEntrypoint(browser: BrowserName) {
@@ -793,10 +908,15 @@ async function destroySessionState(session: string): Promise<RpcResponse> {
       const activeScope = (status.result as { sessionScope?: typeof scope } | undefined)?.sessionScope;
       if (activeScope) scope = activeScope;
       const shutdown = await requestDaemon(endpoint, "shutdown", { reason: "destroy" });
+      if (!shutdown.ok) return shutdown;
       traceEvent = (shutdown.result as { traceEvent?: unknown } | undefined)?.traceEvent;
-      const deadline = Date.now() + 5_000;
-      while (Date.now() < deadline && await daemonIsHealthy(endpoint)) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
+      const shutdownTimeout = sessionCleanupTimeout();
+      if (!await waitForDaemonToStop(endpoint, shutdownTimeout)) {
+        return errorResponse(
+          shutdown.id,
+          "cleanup_timeout",
+          `Session "${session}" did not stop within ${shutdownTimeout}ms; its managed data and daemon log were preserved for diagnosis.`,
+        );
       }
     } else if (endpoint) {
       await removeEndpoint(session);
@@ -817,6 +937,8 @@ async function destroySessionState(session: string): Promise<RpcResponse> {
       profileDestroyed: !externalProfilePreserved,
       externalProfilePreserved,
       sessionScope: scope,
+      preserved: preservedRetainedData(browserConfigPath()),
+      deletionBoundary: "filesystem removal completed; secure erasure and external copies are not verified",
       ...(traceEvent ? { traceEvent } : {}),
     });
   } finally {
@@ -824,22 +946,71 @@ async function destroySessionState(session: string): Promise<RpcResponse> {
   }
 }
 
+async function closeSessionState(session: string): Promise<RpcResponse> {
+  const endpoint = await readEndpoint(session);
+  if (!endpoint || !await daemonIsHealthy(endpoint)) {
+    return await requestWithoutStarting(session, "shutdown");
+  }
+  const status = await requestDaemon(endpoint, "status");
+  const profileMode = String(
+    (status.result as { sessionScope?: { mode?: unknown } } | undefined)
+      ?.sessionScope?.mode ?? "persistent",
+  );
+  const response = await requestDaemon(endpoint, "shutdown");
+  if (profileMode === "disposable" && response.ok) {
+    const shutdownTimeout = sessionCleanupTimeout();
+    if (!await waitForDaemonToStop(endpoint, shutdownTimeout)) {
+      return errorResponse(
+        response.id,
+        "cleanup_timeout",
+        `Disposable session "${session}" did not stop within ${shutdownTimeout}ms; its daemon log was preserved for diagnosis.`,
+      );
+    }
+    await rm(pathsForSession(session).log, { force: true });
+  }
+  return response;
+}
+
+function sessionCleanupTimeout() {
+  return numericEnvironment(
+    "BLOP_BROWSER_CLEANUP_TIMEOUT_MS",
+    5_000,
+    25,
+    5_000,
+  );
+}
+
+async function waitForDaemonToStop(
+  endpoint: DaemonEndpoint,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && await daemonIsHealthy(endpoint)) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return !await daemonIsHealthy(endpoint);
+}
+
 async function requestWithoutStarting(
   session: string,
   method: RpcMethod,
   profileMode: BrowserProfileMode = "persistent",
+  cdpEndpoint?: string,
 ): Promise<RpcResponse> {
   const endpoint = await readEndpoint(session);
   if (!endpoint || !await daemonIsHealthy(endpoint)) {
     if (endpoint) await removeEndpoint(session);
+    const sessionScope = getBrowserSessionScope(session, {
+      runtimeDirectory: pathsForSession(session).directory,
+      existingProfile: Boolean(cdpEndpoint),
+      profileMode,
+    });
     return okResponse("offline", method === "status"
       ? {
         session,
         active: false,
-        sessionScope: getBrowserSessionScope(session, {
-          runtimeDirectory: pathsForSession(session).directory,
-          profileMode,
-        }),
+        sessionScope,
+        privacy: createCliSessionPrivacySummary(session, sessionScope, cdpEndpoint),
       }
       : method === "export_trace"
       ? await readPersistedCliTrace(pathsForSession(session).artifacts)
@@ -867,6 +1038,9 @@ async function runDaemon(
     closing = true;
     await runtime.close(reason);
     await rpc?.close();
+    if (profileMode === "disposable") {
+      await rm(paths.log, { force: true }).catch(() => undefined);
+    }
   };
   rpc = await startRpcServer(session, async (request) => handleDaemonRequest(request.id, request.method, request.params, runtime, close));
 
@@ -1031,12 +1205,20 @@ function controlRpcError(error: BrowserControlError) {
   } as const;
 }
 
-function numericEnvironment(name: string, fallback: number, minimum: number) {
+function numericEnvironment(
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER,
+) {
   const value = Number(process.env[name] ?? fallback);
-  return Number.isFinite(value) ? Math.max(minimum, Math.floor(value)) : fallback;
+  return Number.isFinite(value)
+    ? Math.min(maximum, Math.max(minimum, Math.floor(value)))
+    : fallback;
 }
 
 function printResponse(response: RpcResponse, json: boolean) {
+  response = publicRpcResponse(response);
   if (json) {
     const { id: _internalRequestId, ...publicResponse } = response;
     process.stdout.write(`${JSON.stringify(publicResponse)}\n`);
@@ -1055,6 +1237,25 @@ function printResponse(response: RpcResponse, json: boolean) {
     process.stdout.write(`${boundary}${result.content}\n`);
   }
   else process.stdout.write(`${JSON.stringify(response.result, null, 2)}\n`);
+}
+
+function publicRpcResponse(response: RpcResponse): RpcResponse {
+  if (!response.result || typeof response.result !== "object" || Array.isArray(response.result)) {
+    return response;
+  }
+  const result = { ...(response.result as Record<string, unknown>) };
+  delete result.cdpEndpointIdentity;
+  if (typeof result.cdpEndpoint === "string") {
+    result.cdpEndpoint = displayCdpEndpoint(result.cdpEndpoint);
+  }
+  if (result.browser && typeof result.browser === "object" && !Array.isArray(result.browser)) {
+    const browser = { ...(result.browser as Record<string, unknown>) };
+    if (typeof browser.cdpEndpoint === "string") {
+      browser.cdpEndpoint = displayCdpEndpoint(browser.cdpEndpoint);
+    }
+    result.browser = browser;
+  }
+  return { ...response, result };
 }
 
 function printTraceResponse(response: RpcResponse) {
@@ -1076,6 +1277,10 @@ function formatContentBoundary(boundary: ToolContentBoundary) {
     return "[content-boundary source=caller trust=untrusted]";
   }
   return "[content-boundary source=harness trust=trusted]";
+}
+
+function formatPrivacySummary(privacy: CliSessionPrivacySummary) {
+  return `Privacy: mode=${privacy.mode} telemetry=${privacy.telemetry.firstPartyHarness} recording=trace+metrics; screenshots=${privacy.recording.screenshots} profile=${privacy.locations.profileDirectory ?? "external"} local-retention=${privacy.retention.localArtifacts} browser-storage=${privacy.retention.managedBrowserStorage}`;
 }
 
 function messageOf(error: unknown) {

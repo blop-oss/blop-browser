@@ -38,6 +38,11 @@ describe.skipIf(!hasDocker)("playwright container sandbox", () => {
       // --- Session A: container comes up and serves a page. ---
       const sessionA = await startPlaywrightContainer({ containerName: TEST_CONTAINER });
       expect(sessionA.browser.isConnected()).toBe(true);
+      expect(sessionA.hasInternetEgress).toBeNull();
+      expect(sessionA.internetEgressProbe).toEqual({
+        enabled: false,
+        destination: null,
+      });
 
       const pageA = await (await sessionA.browser.newContext()).newPage();
       await pageA.goto("data:text/html,<title>blop-a</title><h1>session a</h1>");
@@ -105,13 +110,23 @@ describe.skipIf(!hasDocker)("playwright container sandbox", () => {
       // The egress probe runs once per container lifetime and is cached. Reset
       // the cache so this test gets a fresh probe against the shared container.
       _resetEgressCacheForTests();
-      const session = await startPlaywrightContainer({ containerName: TEST_CONTAINER });
+      const session = await startPlaywrightContainer({
+        containerName: TEST_CONTAINER,
+        probeInternetEgress: true,
+      });
       expect(typeof session.hasInternetEgress).toBe("boolean");
+      expect(session.internetEgressProbe).toEqual({
+        enabled: true,
+        destination: "https://1.1.1.1:443",
+      });
       // Whether it's true or false depends on the host's network policy; both
       // are valid. The contract is just that the flag is populated and stable.
       const firstValue = session.hasInternetEgress;
       // A second start on the same container reuses the cached probe result.
-      const session2 = await startPlaywrightContainer({ containerName: TEST_CONTAINER });
+      const session2 = await startPlaywrightContainer({
+        containerName: TEST_CONTAINER,
+        probeInternetEgress: true,
+      });
       expect(session2.hasInternetEgress).toBe(firstValue);
       await session.stop();
       await session2.stop();
