@@ -1366,7 +1366,7 @@ async function runDaemon(
 
 async function installCamoufox() {
   const cliPath = process.env.BLOP_BROWSER_CAMOUFOX_CLI_PATH
-    ?? fileURLToPath(new URL("./__main__.js", import.meta.resolve("camoufox-js")));
+    ?? fileURLToPath(new URL("../docker/camoufox/install.mjs", import.meta.url));
   const nodeExecutable = process.env.BLOP_BROWSER_NODE_PATH ?? (process.versions.bun ? "node" : process.execPath);
   const child = spawn(nodeExecutable, [cliPath, "fetch"], {
     env: process.env,

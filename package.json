@@ -99,11 +99,12 @@
     "demo:privacy": "bun run build && node scripts/demo-privacy-data-flows.mjs",
     "demo:takeover": "bun run build && node scripts/demo-human-takeover.mjs",
     "clean": "rm -rf dist",
-    "prepublishOnly": "npm run clean && npm run build"
+    "prepublishOnly": "npm run clean && npm run build",
+    "prepare": "npm run build"
   },
   "dependencies": {
     "camoufox-js": "0.11.1",
-    "playwright": "^1.61.1"
+    "playwright": "1.61.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.18",

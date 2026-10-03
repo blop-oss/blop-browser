@@ -224,6 +224,20 @@ async function captureBoundedScreenshot(
   maxDimension: number,
 ) {
   if (target) await target.scrollIntoViewIfNeeded({ timeout: 5000 });
+  // Preserve the consumer's first-frame readiness across both capture paths.
+  await page.evaluate(() => new Promise<void>((resolve, reject) => {
+    let frame: number;
+    const timeout = setTimeout(() => {
+      cancelAnimationFrame(frame);
+      reject(new Error("Screenshot page did not render two animation frames within 5000ms."));
+    }, 5000);
+    frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+  }));
   const box = target ? await target.boundingBox() : null;
   if (target && !box) throw new Error("Screenshot target has no visible bounding box.");
   const geometry = box
