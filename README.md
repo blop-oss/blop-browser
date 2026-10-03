@@ -464,7 +464,7 @@ returns later sessions to Chromium. You can also pass `--browser camoufox` for
 the same backend.
 
 The managed local installer and default Docker image use `camoufox-js` 0.11.1,
-Playwright 1.61.1, and the pinned
+Playwright and `playwright-core` 1.61.1, and the pinned
 [Camoufox 152.0.4-beta.30 release](https://github.com/daijro/camoufox/releases/tag/v152.0.4-beta.30).
 That browser retains the adapter's fingerprint properties and adds Playwright
 1.61 protocol support. Newer browser releases are not automatically selected:
@@ -474,6 +474,8 @@ If a previous installation fetched a different browser version, run
 `blop-browser install camoufox` explicitly to replace the cached browser with the
 pinned release. This also affects other applications sharing that Camoufox
 cache. An explicit executable or Docker image override remains caller-owned.
+Both Playwright packages are pinned together so Git source preparation does not
+resolve incompatible browser types through the adapter's broader dependency range.
 
 The Camoufox browser binary is a separate third-party download. Review the
 [Camoufox project](https://github.com/daijro/camoufox) before using it in your
@@ -534,6 +536,11 @@ process.stdout.write(`${traceRecorder.timeline()}\n`);
 process.stdout.write(`${sessionMetricsRecorder.json(true)}\n`);
 await browser.close();
 ```
+
+Screenshot capture waits for two animation frames before measuring a visible
+page or scrolled target, with a five-second readiness deadline. Hidden documents
+do not render animation frames; their native capture skips that wait and does
+not activate the tab.
 
 `safety.mode: "read-only"` rejects pointer, keyboard, form, file-upload, and
 page-closing interactions before they reach Playwright. Navigation and

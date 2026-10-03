@@ -224,20 +224,34 @@ async function captureBoundedScreenshot(
   maxDimension: number,
 ) {
   if (target) await target.scrollIntoViewIfNeeded({ timeout: 5000 });
-  // Preserve the consumer's first-frame readiness across both capture paths.
-  await page.evaluate(() => new Promise<void>((resolve, reject) => {
-    let frame: number;
-    const timeout = setTimeout(() => {
-      cancelAnimationFrame(frame);
-      reject(new Error("Screenshot page did not render two animation frames within 5000ms."));
-    }, 5000);
-    frame = requestAnimationFrame(() => {
-      frame = requestAnimationFrame(() => {
+  // Wait for pending visible paints without activating an existing user's tab.
+  // Hidden documents suspend animation frames; their native capture still works.
+  await page.evaluate(() => {
+    if (document.visibilityState !== "visible") return;
+    return new Promise<void>((resolve, reject) => {
+      let frame = 0;
+      const cleanup = () => {
         clearTimeout(timeout);
+        cancelAnimationFrame(frame);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      };
+      const complete = () => {
+        cleanup();
         resolve();
+      };
+      const onVisibilityChange = () => {
+        if (document.visibilityState !== "visible") complete();
+      };
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error("Screenshot page did not render two animation frames within 5000ms."));
+      }, 5000);
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(complete);
       });
     });
-  }));
+  });
   const box = target ? await target.boundingBox() : null;
   if (target && !box) throw new Error("Screenshot target has no visible bounding box.");
   const geometry = box
