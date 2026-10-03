@@ -54,7 +54,8 @@ function defaultImage(): string {
   const harnessVersion = (require("../../package.json") as { version: string }).version;
   const playwrightVersion = dependencyVersion("playwright");
   const camoufoxVersion = dependencyVersion("camoufox-js");
-  return `blop-camoufox:h${harnessVersion}-pw${playwrightVersion}-cf${camoufoxVersion}`;
+  const browserVersion = require("../../docker/camoufox/browser-version.json") as { version: string; release: string };
+  return `blop-camoufox:h${harnessVersion}-pw${playwrightVersion}-cf${camoufoxVersion}-browser${browserVersion.version}-${browserVersion.release}`;
 }
 
 async function imageExists(image: string): Promise<boolean> {
