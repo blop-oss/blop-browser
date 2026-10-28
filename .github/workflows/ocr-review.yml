@@ -31,17 +31,17 @@ jobs:
           llm_url: https://api.deepseek.com
           llm_auth_token: ${{ secrets.OCR_LLM_TOKEN }}
           llm_model: deepseek-chat
-          llm_use_anthropic: 'false'
+          llm_use_anthropic: "false"
           language: English
           effort: medium
-          review_task_timeout: '15'
-          review_concurrency: '4'
+          review_task_timeout: "15"
+          review_concurrency: "4"
           # Inline comments for medium+ severity (routing below low), plus one
           # sticky summary per run. Incremental mode never deletes history.
           route_severity_below: low
-          sticky_summary: 'true'
-          incremental: 'true'
-          resolve_outdated: 'false'
-          checkpoint_range: 'false'
+          sticky_summary: "true"
+          incremental: "true"
+          resolve_outdated: "false"
+          checkpoint_range: "false"
           # Live progress lines in the workflow log while runs are new.
-          stream_progress: 'true'
+          stream_progress: "true"
